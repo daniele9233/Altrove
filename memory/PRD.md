@@ -50,7 +50,8 @@ App mobile per gestire il piano di allenamento per la Mezza Maratona di Fuerteve
 - **Frontend**: React Native Expo (SDK 54) con Expo Router
 - **Backend**: FastAPI (Python) su porta 8001
 - **Database**: MongoDB
-- **AI**: OpenAI GPT-5.2 via emergentintegrations (Emergent LLM Key)
+- **AI**: Claude Sonnet 4 via emergentintegrations (Emergent LLM Key)
+- **Strava**: API v3 integrata (profilo connesso, attività richiedono scope activity:read)
 - **Design**: Dark mode sportivo (stile Garmin avanzato), lime #BEF264 su nero #09090B
 
 ## API Endpoints
