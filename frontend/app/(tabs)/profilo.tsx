@@ -26,6 +26,12 @@ export default function ProfiloScreen() {
   const [editWeight, setEditWeight] = useState('');
   const [saving, setSaving] = useState(false);
   const [syncing, setSyncing] = useState(false);
+  const [stravaCodeModal, setStravaCodeModal] = useState(false);
+  const [stravaCode, setStravaCode] = useState('');
+  const [stravaAuthUrl, setStravaAuthUrl] = useState('');
+  const [exchanging, setExchanging] = useState(false);
+  const [stravaActivities, setStravaActivities] = useState<any[]>([]);
+  const [activitiesError, setActivitiesError] = useState<string | null>(null);
 
   const loadData = async () => {
     try {
@@ -78,14 +84,46 @@ export default function ProfiloScreen() {
     try {
       const result = await api.syncStrava();
       if (result.needs_reauth) {
-        Alert.alert('Strava', result.message || 'Serve ri-autorizzare con scope activity:read');
+        // Need to re-authorize - show auth flow
+        const authData = await api.getStravaAuthUrl();
+        setStravaAuthUrl(authData.url);
+        setStravaCodeModal(true);
       } else {
-        Alert.alert('Strava', `Sincronizzate ${result.synced} nuove attività`);
+        Alert.alert('Strava Sync', result.message || `Sincronizzate ${result.synced} nuove corse`);
+        loadData();
       }
     } catch {
       Alert.alert('Errore', 'Errore durante la sincronizzazione');
     } finally {
       setSyncing(false);
+    }
+  };
+
+  const handleStravaAuth = async () => {
+    try {
+      const authData = await api.getStravaAuthUrl();
+      setStravaAuthUrl(authData.url);
+      setStravaCodeModal(true);
+    } catch {
+      Alert.alert('Errore', 'Impossibile ottenere URL autorizzazione');
+    }
+  };
+
+  const handleExchangeCode = async () => {
+    if (!stravaCode.trim()) return;
+    setExchanging(true);
+    try {
+      const result = await api.exchangeStravaCode(stravaCode.trim());
+      if (result.success) {
+        Alert.alert('Strava', result.message);
+        setStravaCodeModal(false);
+        setStravaCode('');
+        loadData();
+      }
+    } catch (e: any) {
+      Alert.alert('Errore', 'Codice non valido o scaduto. Riprova con un nuovo codice.');
+    } finally {
+      setExchanging(false);
     }
   };
 
@@ -130,7 +168,7 @@ export default function ProfiloScreen() {
             <View style={styles.stravaCard}>
               <View style={styles.stravaHeader}>
                 <View style={styles.stravaLogo}>
-                  <Ionicons name="logo-google" size={18} color="#FC4C02" />
+                  <Ionicons name="fitness" size={18} color="#FC4C02" />
                 </View>
                 <View style={styles.stravaInfo}>
                   <Text style={styles.stravaTitle}>STRAVA</Text>
@@ -156,9 +194,19 @@ export default function ProfiloScreen() {
                   )}
                 </TouchableOpacity>
               </View>
-              {stravaProfile && (
-                <Text style={styles.stravaNote}>Profilo Strava connesso. Per sincronizzare le attività, serve il permesso activity:read.</Text>
-              )}
+              <View style={styles.stravaActions}>
+                <TouchableOpacity
+                  testID="strava-auth-btn"
+                  style={styles.stravaAuthBtn}
+                  onPress={handleStravaAuth}
+                >
+                  <Ionicons name="key" size={14} color="#FC4C02" />
+                  <Text style={styles.stravaAuthText}>Autorizza activity:read_all</Text>
+                </TouchableOpacity>
+              </View>
+              <Text style={styles.stravaNote}>
+                Per sincronizzare le corse: 1) Clicca "Autorizza" 2) Apri l'URL nel browser 3) Autorizza su Strava 4) Copia il parametro "code" dall'URL di redirect 5) Incollalo nel campo
+              </Text>
             </View>
 
             {/* Stats with Edit */}
@@ -422,6 +470,43 @@ export default function ProfiloScreen() {
           </View>
         </View>
       </Modal>
+
+      {/* Strava Auth Code Modal */}
+      <Modal visible={stravaCodeModal} transparent animationType="fade">
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>AUTORIZZA STRAVA</Text>
+
+            <Text style={styles.stravaStep}>1. Apri questo URL nel browser:</Text>
+            <View style={styles.urlBox}>
+              <Text style={styles.urlText} selectable>{stravaAuthUrl}</Text>
+            </View>
+
+            <Text style={styles.stravaStep}>2. Autorizza l'app su Strava</Text>
+            <Text style={styles.stravaStep}>3. Dall'URL di redirect copia il valore dopo "code="</Text>
+
+            <Text style={styles.modalLabel}>CODICE DI AUTORIZZAZIONE</Text>
+            <TextInput
+              testID="strava-code-input"
+              style={styles.modalInput}
+              value={stravaCode}
+              onChangeText={setStravaCode}
+              placeholder="Incolla qui il codice..."
+              placeholderTextColor={COLORS.textMuted}
+              autoCapitalize="none"
+            />
+
+            <View style={styles.modalButtons}>
+              <TouchableOpacity testID="cancel-strava-btn" style={styles.modalCancelBtn} onPress={() => { setStravaCodeModal(false); setStravaCode(''); }}>
+                <Text style={styles.modalCancelText}>ANNULLA</Text>
+              </TouchableOpacity>
+              <TouchableOpacity testID="exchange-code-btn" style={styles.modalSaveBtn} onPress={handleExchangeCode} disabled={exchanging || !stravaCode.trim()}>
+                <Text style={styles.modalSaveText}>{exchanging ? 'SCAMBIO...' : 'AUTORIZZA'}</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -477,6 +562,21 @@ const styles = StyleSheet.create({
   },
   syncText: { fontSize: FONT_SIZES.xs, color: COLORS.limeDark, fontWeight: '700' },
   stravaNote: { fontSize: FONT_SIZES.xs, color: COLORS.textMuted, marginTop: SPACING.sm, lineHeight: 18 },
+  stravaActions: { flexDirection: 'row', gap: SPACING.sm, marginTop: SPACING.sm },
+  stravaAuthBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 4,
+    backgroundColor: '#FC4C0215', borderRadius: BORDER_RADIUS.full,
+    paddingHorizontal: SPACING.md, paddingVertical: SPACING.sm,
+    borderWidth: 1, borderColor: '#FC4C0240',
+  },
+  stravaAuthText: { fontSize: FONT_SIZES.xs, color: '#FC4C02', fontWeight: '700' },
+  stravaStep: { fontSize: FONT_SIZES.sm, color: COLORS.textSecondary, marginTop: SPACING.sm, lineHeight: 20 },
+  urlBox: {
+    backgroundColor: COLORS.inputBg, borderRadius: BORDER_RADIUS.sm,
+    padding: SPACING.sm, marginTop: SPACING.xs,
+    borderWidth: 1, borderColor: COLORS.cardBorder,
+  },
+  urlText: { fontSize: FONT_SIZES.xs, color: '#FC4C02', lineHeight: 16 },
 
   // Stats
   statsHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginHorizontal: SPACING.xl, marginBottom: SPACING.md },

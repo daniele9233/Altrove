@@ -18,8 +18,10 @@ client = AsyncIOMotorClient(mongo_url)
 db = client[os.environ['DB_NAME']]
 
 EMERGENT_KEY = os.environ.get('EMERGENT_LLM_KEY', '')
-STRAVA_ACCESS_TOKEN = os.environ.get('STRAVA_ACCESS_TOKEN', '')
+STRAVA_CLIENT_ID = os.environ.get('STRAVA_CLIENT_ID', '')
 STRAVA_CLIENT_SECRET = os.environ.get('STRAVA_CLIENT_SECRET', '')
+STRAVA_INITIAL_ACCESS_TOKEN = os.environ.get('STRAVA_ACCESS_TOKEN', '')
+STRAVA_INITIAL_REFRESH_TOKEN = os.environ.get('STRAVA_REFRESH_TOKEN', '')
 
 app = FastAPI()
 api_router = APIRouter(prefix="/api")
@@ -642,16 +644,130 @@ async def get_medals():
 
 import httpx
 
+class StravaCodeRequest(BaseModel):
+    code: str
+
+@api_router.get("/strava/auth-url")
+async def get_strava_auth_url():
+    """Return the Strava OAuth URL for authorizing with activity:read_all scope"""
+    url = (
+        f"https://www.strava.com/oauth/authorize"
+        f"?client_id={STRAVA_CLIENT_ID}"
+        f"&response_type=code"
+        f"&redirect_uri=http://localhost/exchange_token"
+        f"&approval_prompt=force"
+        f"&scope=read,activity:read_all"
+    )
+    return {"url": url, "instructions": "Apri questo URL nel browser, autorizza, e copia il parametro 'code' dall'URL di redirect."}
+
+@api_router.post("/strava/exchange-code")
+async def exchange_strava_code(req: StravaCodeRequest):
+    """Exchange authorization code for access/refresh tokens with activity:read_all scope"""
+    logger.info(f"Exchanging Strava code: {req.code[:10]}...")
+    async with httpx.AsyncClient() as http:
+        resp = await http.post(
+            "https://www.strava.com/oauth/token",
+            data={
+                "client_id": STRAVA_CLIENT_ID,
+                "client_secret": STRAVA_CLIENT_SECRET,
+                "code": req.code,
+                "grant_type": "authorization_code",
+            }
+        )
+        if resp.status_code != 200:
+            logger.error(f"Strava code exchange failed: {resp.status_code} {resp.text}")
+            raise HTTPException(resp.status_code, f"Scambio codice fallito: {resp.text}")
+
+        data = resp.json()
+        new_tokens = {
+            "access_token": data["access_token"],
+            "refresh_token": data["refresh_token"],
+            "expires_at": data["expires_at"],
+            "token_type": data.get("token_type", "Bearer"),
+            "scope": "activity:read_all",
+        }
+        await db.strava_tokens.delete_many({})
+        await db.strava_tokens.insert_one({**new_tokens})
+        logger.info(f"Strava code exchanged successfully, new token expires_at={new_tokens['expires_at']}")
+
+        athlete = data.get("athlete", {})
+        return {
+            "success": True,
+            "athlete": f"{athlete.get('firstname', '')} {athlete.get('lastname', '')}",
+            "scope": "activity:read_all",
+            "message": "Autorizzazione completata! Ora puoi sincronizzare le attività."
+        }
+
+async def get_strava_tokens():
+    """Get current Strava tokens from DB, or use initial ones from .env"""
+    tokens = await db.strava_tokens.find_one({}, {"_id": 0})
+    if tokens:
+        return tokens
+    return {
+        "access_token": STRAVA_INITIAL_ACCESS_TOKEN,
+        "refresh_token": STRAVA_INITIAL_REFRESH_TOKEN,
+        "expires_at": 0
+    }
+
+async def refresh_strava_token():
+    """Refresh Strava access token using refresh_token"""
+    tokens = await get_strava_tokens()
+    refresh_token = tokens.get("refresh_token", STRAVA_INITIAL_REFRESH_TOKEN)
+
+    logger.info(f"Refreshing Strava token with client_id={STRAVA_CLIENT_ID}")
+    async with httpx.AsyncClient() as http:
+        resp = await http.post(
+            "https://www.strava.com/oauth/token",
+            data={
+                "client_id": STRAVA_CLIENT_ID,
+                "client_secret": STRAVA_CLIENT_SECRET,
+                "grant_type": "refresh_token",
+                "refresh_token": refresh_token,
+            }
+        )
+        if resp.status_code != 200:
+            logger.error(f"Strava refresh failed: {resp.status_code} {resp.text}")
+            raise HTTPException(401, f"Refresh token fallito: {resp.text}")
+
+        data = resp.json()
+        new_tokens = {
+            "access_token": data["access_token"],
+            "refresh_token": data["refresh_token"],
+            "expires_at": data["expires_at"],
+            "token_type": data.get("token_type", "Bearer"),
+        }
+        await db.strava_tokens.delete_many({})
+        await db.strava_tokens.insert_one({**new_tokens})
+        logger.info(f"Strava token refreshed, expires_at={new_tokens['expires_at']}")
+        return new_tokens
+
+async def get_valid_strava_token():
+    """Get a valid (non-expired) Strava access token, refreshing if needed"""
+    import time
+    tokens = await get_strava_tokens()
+    expires_at = tokens.get("expires_at", 0)
+
+    if time.time() >= expires_at - 60:
+        logger.info("Strava token expired or about to expire, refreshing...")
+        tokens = await refresh_strava_token()
+
+    return tokens["access_token"]
+
 @api_router.get("/strava/profile")
 async def get_strava_profile():
-    if not STRAVA_ACCESS_TOKEN:
-        raise HTTPException(400, "Token Strava non configurato")
     try:
-        async with httpx.AsyncClient() as client_http:
-            resp = await client_http.get(
+        token = await get_valid_strava_token()
+        async with httpx.AsyncClient() as http:
+            resp = await http.get(
                 "https://www.strava.com/api/v3/athlete",
-                headers={"Authorization": f"Bearer {STRAVA_ACCESS_TOKEN}"}
+                headers={"Authorization": f"Bearer {token}"}
             )
+            if resp.status_code == 401:
+                token = (await refresh_strava_token())["access_token"]
+                resp = await http.get(
+                    "https://www.strava.com/api/v3/athlete",
+                    headers={"Authorization": f"Bearer {token}"}
+                )
             if resp.status_code != 200:
                 raise HTTPException(resp.status_code, f"Errore Strava: {resp.text}")
             data = resp.json()
@@ -664,78 +780,115 @@ async def get_strava_profile():
                 "premium": data.get("premium"),
                 "connected": True
             }
-    except httpx.HTTPError as e:
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Strava profile error: {e}")
         raise HTTPException(500, f"Errore connessione Strava: {str(e)}")
 
 @api_router.get("/strava/activities")
-async def get_strava_activities():
-    if not STRAVA_ACCESS_TOKEN:
-        raise HTTPException(400, "Token Strava non configurato")
+async def get_strava_activities(per_page: int = 50):
     try:
-        async with httpx.AsyncClient() as client_http:
-            resp = await client_http.get(
+        token = await get_valid_strava_token()
+        async with httpx.AsyncClient() as http:
+            resp = await http.get(
                 "https://www.strava.com/api/v3/athlete/activities",
-                headers={"Authorization": f"Bearer {STRAVA_ACCESS_TOKEN}"},
-                params={"per_page": 30}
+                headers={"Authorization": f"Bearer {token}"},
+                params={"per_page": per_page}
             )
             if resp.status_code == 401:
-                return {"activities": [], "error": "Token scaduto. Serve ri-autorizzare con scope activity:read", "needs_reauth": True}
-            if resp.status_code == 403:
-                return {"activities": [], "error": "Scope insufficiente. Serve activity:read per accedere alle attività", "needs_reauth": True}
+                token = (await refresh_strava_token())["access_token"]
+                resp = await http.get(
+                    "https://www.strava.com/api/v3/athlete/activities",
+                    headers={"Authorization": f"Bearer {token}"},
+                    params={"per_page": per_page}
+                )
             if resp.status_code != 200:
-                return {"activities": [], "error": f"Errore Strava: {resp.status_code}"}
+                return {"activities": [], "error": f"Errore Strava: {resp.status_code} - {resp.text}", "needs_reauth": resp.status_code == 401}
+
             raw = resp.json()
             activities = []
             for a in raw:
                 if a.get("type") != "Run":
                     continue
                 dist_km = round(a.get("distance", 0) / 1000, 2)
+                if dist_km < 0.5:
+                    continue
                 time_min = round(a.get("moving_time", 0) / 60, 2)
                 pace_s = a.get("moving_time", 0) / max(dist_km, 0.01)
                 pace = f"{int(pace_s // 60)}:{int(pace_s % 60):02d}"
                 activities.append({
                     "strava_id": a.get("id"),
-                    "name": a.get("name"),
+                    "name": a.get("name", ""),
                     "date": a.get("start_date_local", "")[:10],
                     "distance_km": dist_km,
                     "duration_minutes": time_min,
                     "avg_pace": pace,
                     "avg_hr": a.get("average_heartrate"),
                     "max_hr": a.get("max_heartrate"),
-                    "type": a.get("type"),
+                    "elevation_gain": a.get("total_elevation_gain"),
                 })
-            return {"activities": activities, "needs_reauth": False}
-    except httpx.HTTPError as e:
-        raise HTTPException(500, f"Errore connessione Strava: {str(e)}")
+            return {"activities": activities, "total": len(activities), "needs_reauth": False}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Strava activities error: {e}")
+        return {"activities": [], "error": str(e), "needs_reauth": False}
 
 @api_router.post("/strava/sync")
 async def sync_strava_activities():
     strava_data = await get_strava_activities()
     if strava_data.get("needs_reauth"):
         return {"synced": 0, "message": strava_data.get("error"), "needs_reauth": True}
+
     activities = strava_data.get("activities", [])
+    if not activities and strava_data.get("error"):
+        return {"synced": 0, "message": strava_data.get("error"), "needs_reauth": False}
+
     synced = 0
+    matched = 0
     for act in activities:
-        existing = await db.runs.find_one({"date": act["date"], "distance_km": act["distance_km"]})
-        if not existing:
-            run_doc = {
-                "id": make_id(),
-                "date": act["date"],
-                "distance_km": act["distance_km"],
-                "duration_minutes": act["duration_minutes"],
-                "avg_pace": act["avg_pace"],
-                "avg_hr": act.get("avg_hr"),
-                "max_hr": act.get("max_hr"),
-                "avg_hr_pct": round((act["avg_hr"] / 179) * 100) if act.get("avg_hr") else None,
-                "max_hr_pct": round((act["max_hr"] / 179) * 100) if act.get("max_hr") else None,
-                "run_type": "easy",
-                "notes": f"Importata da Strava: {act.get('name', '')}",
-                "location": None,
-                "strava_id": act.get("strava_id")
-            }
-            await db.runs.insert_one(run_doc)
-            synced += 1
-    return {"synced": synced, "total_strava": len(activities), "needs_reauth": False}
+        existing = await db.runs.find_one({"strava_id": act.get("strava_id")})
+        if existing:
+            continue
+
+        date_match = await db.runs.find_one({
+            "date": act["date"],
+            "distance_km": {"$gte": act["distance_km"] - 0.3, "$lte": act["distance_km"] + 0.3}
+        })
+        if date_match:
+            await db.runs.update_one(
+                {"id": date_match["id"]},
+                {"$set": {"strava_id": act.get("strava_id"), "notes": (date_match.get("notes", "") or "") + f" [Strava: {act.get('name', '')}]"}}
+            )
+            matched += 1
+            continue
+
+        run_doc = {
+            "id": make_id(),
+            "date": act["date"],
+            "distance_km": act["distance_km"],
+            "duration_minutes": act["duration_minutes"],
+            "avg_pace": act["avg_pace"],
+            "avg_hr": round(act["avg_hr"]) if act.get("avg_hr") else None,
+            "max_hr": round(act["max_hr"]) if act.get("max_hr") else None,
+            "avg_hr_pct": round((act["avg_hr"] / 179) * 100) if act.get("avg_hr") else None,
+            "max_hr_pct": round((act["max_hr"] / 179) * 100) if act.get("max_hr") else None,
+            "run_type": "easy",
+            "notes": f"Importata da Strava: {act.get('name', '')}",
+            "location": None,
+            "strava_id": act.get("strava_id")
+        }
+        await db.runs.insert_one(run_doc)
+        synced += 1
+
+    return {
+        "synced": synced,
+        "matched": matched,
+        "total_strava": len(activities),
+        "message": f"Sincronizzate {synced} nuove corse, {matched} abbinate a corse esistenti",
+        "needs_reauth": False
+    }
 
 @api_router.get("/weekly-history")
 async def get_weekly_history():

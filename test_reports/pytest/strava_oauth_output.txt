@@ -1,0 +1,17 @@
+============================= test session starts ==============================
+platform linux -- Python 3.11.14, pytest-9.0.2, pluggy-1.6.0 -- /root/.venv/bin/python
+cachedir: .pytest_cache
+rootdir: /app/backend/tests
+plugins: anyio-4.12.1
+collecting ... collected 7 items
+
+test_strava_oauth.py::TestStravaOAuthFlow::test_strava_auth_url_endpoint PASSED [ 14%]
+test_strava_oauth.py::TestStravaOAuthFlow::test_strava_exchange_code_endpoint_exists PASSED [ 28%]
+test_strava_oauth.py::TestStravaOAuthFlow::test_strava_profile_after_token PASSED [ 42%]
+test_strava_oauth.py::TestStravaOAuthFlow::test_strava_activities_needs_reauth PASSED [ 57%]
+test_strava_oauth.py::TestStravaOAuthFlow::test_strava_sync_scope_limitation PASSED [ 71%]
+test_strava_oauth.py::TestStravaOAuthURLDetails::test_oauth_url_has_all_required_params PASSED [ 85%]
+test_strava_oauth.py::TestStravaOAuthURLDetails::test_oauth_url_scope_includes_activity_read_all PASSED [100%]
+
+----- generated xml file: /app/test_reports/pytest/pytest_strava_oauth.xml -----
+============================== 7 passed in 2.56s ===============================

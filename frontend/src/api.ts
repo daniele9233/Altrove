@@ -44,4 +44,7 @@ export const api = {
   getStravaProfile: () => apiFetch('/strava/profile'),
   getStravaActivities: () => apiFetch('/strava/activities'),
   syncStrava: () => apiFetch('/strava/sync', { method: 'POST' }),
+  getStravaAuthUrl: () => apiFetch('/strava/auth-url'),
+  exchangeStravaCode: (code: string) =>
+    apiFetch('/strava/exchange-code', { method: 'POST', body: JSON.stringify({ code }) }),
 };
