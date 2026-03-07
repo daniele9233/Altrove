@@ -787,48 +787,62 @@ async def get_strava_profile():
         raise HTTPException(500, f"Errore connessione Strava: {str(e)}")
 
 @api_router.get("/strava/activities")
-async def get_strava_activities(per_page: int = 50):
+async def get_strava_activities(per_page: int = 200):
     try:
         token = await get_valid_strava_token()
-        async with httpx.AsyncClient() as http:
-            resp = await http.get(
-                "https://www.strava.com/api/v3/athlete/activities",
-                headers={"Authorization": f"Bearer {token}"},
-                params={"per_page": per_page}
-            )
-            if resp.status_code == 401:
-                token = (await refresh_strava_token())["access_token"]
+        all_activities = []
+        page = 1
+
+        async with httpx.AsyncClient(timeout=30) as http:
+            while True:
                 resp = await http.get(
                     "https://www.strava.com/api/v3/athlete/activities",
                     headers={"Authorization": f"Bearer {token}"},
-                    params={"per_page": per_page}
+                    params={"per_page": per_page, "page": page}
                 )
-            if resp.status_code != 200:
-                return {"activities": [], "error": f"Errore Strava: {resp.status_code} - {resp.text}", "needs_reauth": resp.status_code == 401}
+                if resp.status_code == 401:
+                    token = (await refresh_strava_token())["access_token"]
+                    resp = await http.get(
+                        "https://www.strava.com/api/v3/athlete/activities",
+                        headers={"Authorization": f"Bearer {token}"},
+                        params={"per_page": per_page, "page": page}
+                    )
+                if resp.status_code != 200:
+                    if not all_activities:
+                        return {"activities": [], "error": f"Errore Strava: {resp.status_code} - {resp.text}", "needs_reauth": resp.status_code == 401}
+                    break
 
-            raw = resp.json()
-            activities = []
-            for a in raw:
-                if a.get("type") != "Run":
-                    continue
-                dist_km = round(a.get("distance", 0) / 1000, 2)
-                if dist_km < 0.5:
-                    continue
-                time_min = round(a.get("moving_time", 0) / 60, 2)
-                pace_s = a.get("moving_time", 0) / max(dist_km, 0.01)
-                pace = f"{int(pace_s // 60)}:{int(pace_s % 60):02d}"
-                activities.append({
-                    "strava_id": a.get("id"),
-                    "name": a.get("name", ""),
-                    "date": a.get("start_date_local", "")[:10],
-                    "distance_km": dist_km,
-                    "duration_minutes": time_min,
-                    "avg_pace": pace,
-                    "avg_hr": a.get("average_heartrate"),
-                    "max_hr": a.get("max_heartrate"),
-                    "elevation_gain": a.get("total_elevation_gain"),
-                })
-            return {"activities": activities, "total": len(activities), "needs_reauth": False}
+                raw = resp.json()
+                if not raw:
+                    break
+
+                for a in raw:
+                    if a.get("type") != "Run":
+                        continue
+                    dist_km = round(a.get("distance", 0) / 1000, 2)
+                    if dist_km < 0.5:
+                        continue
+                    time_min = round(a.get("moving_time", 0) / 60, 2)
+                    pace_s = a.get("moving_time", 0) / max(dist_km, 0.01)
+                    pace = f"{int(pace_s // 60)}:{int(pace_s % 60):02d}"
+                    all_activities.append({
+                        "strava_id": a.get("id"),
+                        "name": a.get("name", ""),
+                        "date": a.get("start_date_local", "")[:10],
+                        "distance_km": dist_km,
+                        "duration_minutes": time_min,
+                        "avg_pace": pace,
+                        "avg_hr": a.get("average_heartrate"),
+                        "max_hr": a.get("max_heartrate"),
+                        "elevation_gain": a.get("total_elevation_gain"),
+                    })
+
+                if len(raw) < per_page:
+                    break
+                page += 1
+
+        logger.info(f"Strava: fetched {len(all_activities)} running activities across {page} pages")
+        return {"activities": all_activities, "total": len(all_activities), "needs_reauth": False}
     except HTTPException:
         raise
     except Exception as e:
