@@ -18,6 +18,8 @@ client = AsyncIOMotorClient(mongo_url)
 db = client[os.environ['DB_NAME']]
 
 EMERGENT_KEY = os.environ.get('EMERGENT_LLM_KEY', '')
+STRAVA_ACCESS_TOKEN = os.environ.get('STRAVA_ACCESS_TOKEN', '')
+STRAVA_CLIENT_SECRET = os.environ.get('STRAVA_CLIENT_SECRET', '')
 
 app = FastAPI()
 api_router = APIRouter(prefix="/api")
@@ -82,6 +84,10 @@ class SessionCompleteRequest(BaseModel):
     week_id: str
     session_index: int
     completed: bool
+
+class ProfileUpdateRequest(BaseModel):
+    age: Optional[int] = None
+    weight_kg: Optional[float] = None
 
 # ====== HELPER FUNCTIONS ======
 
@@ -276,7 +282,7 @@ def get_seed_runs():
         {"id": make_id(), "date": "2025-11-21", "distance_km": 6.0, "duration_minutes": 26.0, "avg_pace": "4:20", "avg_hr": 149, "max_hr": 161, "avg_hr_pct": 83, "max_hr_pct": 89, "run_type": "test", "notes": "Test 6km - Miglior forma pre-infortunio", "location": "Roma"},
         {"id": make_id(), "date": "2025-10-15", "distance_km": 10.0, "duration_minutes": 45.52, "avg_pace": "4:33", "avg_hr": 158, "max_hr": 170, "avg_hr_pct": 88, "max_hr_pct": 94, "run_type": "race", "notes": "PB 10km - 45:31", "location": "Roma"},
         {"id": make_id(), "date": "2025-10-28", "distance_km": 15.0, "duration_minutes": 73.63, "avg_pace": "4:54", "avg_hr": 155, "max_hr": 172, "avg_hr_pct": 86, "max_hr_pct": 96, "run_type": "long", "notes": "PB 15km - 1:13:38", "location": "Roma"},
-        {"id": make_id(), "date": "2025-09-20", "distance_km": 5.0, "duration_minutes": 20.58, "avg_pace": "4:07", "avg_hr": 165, "max_hr": 176, "avg_hr_pct": 92, "max_hr_pct": 98, "run_type": "race", "notes": "PB 5km - 20:35", "location": "Roma"},
+        {"id": make_id(), "date": "2025-09-20", "distance_km": 4.01, "duration_minutes": 16.13, "avg_pace": "4:01", "avg_hr": 168, "max_hr": 178, "avg_hr_pct": 94, "max_hr_pct": 99, "run_type": "race", "notes": "PB 4km - 16:08", "location": "Roma"},
         {"id": make_id(), "date": "2026-03-07", "distance_km": 6.01, "duration_minutes": 28.87, "avg_pace": "4:48", "avg_hr": 159, "max_hr": 179, "avg_hr_pct": 88, "max_hr_pct": 99, "run_type": "progressive", "notes": "Roma - Progressivo. Sofferta, FC molto alta. Ritorno post-infortunio.", "location": "Roma"},
         {"id": make_id(), "date": "2026-02-25", "distance_km": 5.01, "duration_minutes": 28.56, "avg_pace": "5:42", "avg_hr": 145, "max_hr": 162, "avg_hr_pct": 81, "max_hr_pct": 90, "run_type": "easy", "notes": "Corsa facile di ripresa", "location": "Roma"},
         {"id": make_id(), "date": "2026-02-20", "distance_km": 4.01, "duration_minutes": 23.66, "avg_pace": "5:54", "avg_hr": 140, "max_hr": 158, "avg_hr_pct": 78, "max_hr_pct": 88, "run_type": "easy", "notes": "Ripresa graduale", "location": "Roma"},
@@ -320,10 +326,17 @@ def get_profile():
         "target_pace": "4:30",
         "target_time": "1:35:00",
         "pbs": {
-            "5km": {"time": "20:35", "date": "2025-09-20", "pace": "4:07"},
+            "4km": {"time": "16:08", "date": "2025-09-20", "pace": "4:01"},
             "6km": {"time": "26:00", "date": "2025-11-21", "pace": "4:20"},
             "10km": {"time": "45:31", "date": "2025-10-15", "pace": "4:33"},
             "15km": {"time": "1:13:38", "date": "2025-10-28", "pace": "4:54"}
+        },
+        "medals": {
+            "4km": {"gold_target": "15:30", "gold_pace": "3:52", "status": "silver"},
+            "6km": {"gold_target": "25:00", "gold_pace": "4:10", "status": "silver"},
+            "10km": {"gold_target": "43:00", "gold_pace": "4:18", "status": "silver"},
+            "15km": {"gold_target": "1:08:00", "gold_pace": "4:32", "status": "silver"},
+            "21.1km": {"gold_target": "1:35:00", "gold_pace": "4:30", "status": "locked"}
         },
         "max_weekly_km": 57,
         "injury": {
@@ -502,7 +515,7 @@ OBIETTIVO: Mezza Maratona Fuerteventura Corralejo, 12 Dicembre 2026
 - Tempo obiettivo: 1h 35m
 
 PERSONAL BEST PRE-INFORTUNIO:
-- 5km: 20:35 (4:07/km)
+- 4km: 16:08 (4:01/km)
 - 6km: 26:00 (4:20/km) FC media 149
 - 10km: 45:31 (4:33/km)
 - 15km: 1:13:38 (4:54/km)
@@ -543,7 +556,7 @@ ISTRUZIONI:
             api_key=EMERGENT_KEY,
             session_id=f"analysis-{req.run_id}",
             system_message=system_msg
-        ).with_model("openai", "gpt-5.2")
+        ).with_model("anthropic", "claude-4-sonnet-20250514")
 
         response = await chat.send_message(UserMessage(text=run_info))
 
@@ -588,6 +601,141 @@ async def get_exercises_list():
 async def get_profile_data():
     profile = await db.profile.find_one({}, {"_id": 0})
     return profile or {}
+
+@api_router.patch("/profile")
+async def update_profile(req: ProfileUpdateRequest):
+    update_fields = {}
+    if req.age is not None:
+        update_fields["age"] = req.age
+    if req.weight_kg is not None:
+        update_fields["weight_kg"] = req.weight_kg
+    if not update_fields:
+        raise HTTPException(400, "Nessun campo da aggiornare")
+    await db.profile.update_one({}, {"$set": update_fields})
+    profile = await db.profile.find_one({}, {"_id": 0})
+    return profile or {}
+
+@api_router.get("/medals")
+async def get_medals():
+    profile = await db.profile.find_one({}, {"_id": 0})
+    medals = profile.get("medals", {}) if profile else {}
+    runs = await db.runs.find({}, {"_id": 0}).to_list(1000)
+    for dist_key, medal_info in medals.items():
+        dist_km = float(dist_key.replace("km", ""))
+        target_secs = pace_to_seconds(medal_info["gold_pace"]) * dist_km
+        best_time = None
+        for run in runs:
+            if abs(run.get("distance_km", 0) - dist_km) < 0.2:
+                run_secs = run.get("duration_minutes", 9999) * 60
+                if best_time is None or run_secs < best_time:
+                    best_time = run_secs
+        if best_time is not None and best_time <= target_secs:
+            medal_info["status"] = "gold"
+        elif best_time is not None:
+            medal_info["status"] = "silver"
+            medal_info["gap_seconds"] = round(best_time - target_secs)
+        else:
+            medal_info["status"] = "locked"
+    return {"medals": medals}
+
+# ====== STRAVA INTEGRATION ======
+
+import httpx
+
+@api_router.get("/strava/profile")
+async def get_strava_profile():
+    if not STRAVA_ACCESS_TOKEN:
+        raise HTTPException(400, "Token Strava non configurato")
+    try:
+        async with httpx.AsyncClient() as client_http:
+            resp = await client_http.get(
+                "https://www.strava.com/api/v3/athlete",
+                headers={"Authorization": f"Bearer {STRAVA_ACCESS_TOKEN}"}
+            )
+            if resp.status_code != 200:
+                raise HTTPException(resp.status_code, f"Errore Strava: {resp.text}")
+            data = resp.json()
+            return {
+                "id": data.get("id"),
+                "name": f"{data.get('firstname', '')} {data.get('lastname', '')}",
+                "username": data.get("username"),
+                "profile_image": data.get("profile"),
+                "weight": data.get("weight"),
+                "premium": data.get("premium"),
+                "connected": True
+            }
+    except httpx.HTTPError as e:
+        raise HTTPException(500, f"Errore connessione Strava: {str(e)}")
+
+@api_router.get("/strava/activities")
+async def get_strava_activities():
+    if not STRAVA_ACCESS_TOKEN:
+        raise HTTPException(400, "Token Strava non configurato")
+    try:
+        async with httpx.AsyncClient() as client_http:
+            resp = await client_http.get(
+                "https://www.strava.com/api/v3/athlete/activities",
+                headers={"Authorization": f"Bearer {STRAVA_ACCESS_TOKEN}"},
+                params={"per_page": 30}
+            )
+            if resp.status_code == 401:
+                return {"activities": [], "error": "Token scaduto. Serve ri-autorizzare con scope activity:read", "needs_reauth": True}
+            if resp.status_code == 403:
+                return {"activities": [], "error": "Scope insufficiente. Serve activity:read per accedere alle attività", "needs_reauth": True}
+            if resp.status_code != 200:
+                return {"activities": [], "error": f"Errore Strava: {resp.status_code}"}
+            raw = resp.json()
+            activities = []
+            for a in raw:
+                if a.get("type") != "Run":
+                    continue
+                dist_km = round(a.get("distance", 0) / 1000, 2)
+                time_min = round(a.get("moving_time", 0) / 60, 2)
+                pace_s = a.get("moving_time", 0) / max(dist_km, 0.01)
+                pace = f"{int(pace_s // 60)}:{int(pace_s % 60):02d}"
+                activities.append({
+                    "strava_id": a.get("id"),
+                    "name": a.get("name"),
+                    "date": a.get("start_date_local", "")[:10],
+                    "distance_km": dist_km,
+                    "duration_minutes": time_min,
+                    "avg_pace": pace,
+                    "avg_hr": a.get("average_heartrate"),
+                    "max_hr": a.get("max_heartrate"),
+                    "type": a.get("type"),
+                })
+            return {"activities": activities, "needs_reauth": False}
+    except httpx.HTTPError as e:
+        raise HTTPException(500, f"Errore connessione Strava: {str(e)}")
+
+@api_router.post("/strava/sync")
+async def sync_strava_activities():
+    strava_data = await get_strava_activities()
+    if strava_data.get("needs_reauth"):
+        return {"synced": 0, "message": strava_data.get("error"), "needs_reauth": True}
+    activities = strava_data.get("activities", [])
+    synced = 0
+    for act in activities:
+        existing = await db.runs.find_one({"date": act["date"], "distance_km": act["distance_km"]})
+        if not existing:
+            run_doc = {
+                "id": make_id(),
+                "date": act["date"],
+                "distance_km": act["distance_km"],
+                "duration_minutes": act["duration_minutes"],
+                "avg_pace": act["avg_pace"],
+                "avg_hr": act.get("avg_hr"),
+                "max_hr": act.get("max_hr"),
+                "avg_hr_pct": round((act["avg_hr"] / 179) * 100) if act.get("avg_hr") else None,
+                "max_hr_pct": round((act["max_hr"] / 179) * 100) if act.get("max_hr") else None,
+                "run_type": "easy",
+                "notes": f"Importata da Strava: {act.get('name', '')}",
+                "location": None,
+                "strava_id": act.get("strava_id")
+            }
+            await db.runs.insert_one(run_doc)
+            synced += 1
+    return {"synced": synced, "total_strava": len(activities), "needs_reauth": False}
 
 @api_router.get("/weekly-history")
 async def get_weekly_history():

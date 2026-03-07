@@ -1,0 +1,18 @@
+============================= test session starts ==============================
+platform linux -- Python 3.11.14, pytest-9.0.2, pluggy-1.6.0 -- /root/.venv/bin/python
+cachedir: .pytest_cache
+rootdir: /app/backend/tests
+plugins: anyio-4.12.1
+collecting ... collected 8 items
+
+test_new_features.py::TestProfileChanges::test_profile_shows_4km_pb PASSED [ 12%]
+test_new_features.py::TestProfileChanges::test_profile_update_age_weight PASSED [ 25%]
+test_new_features.py::TestMedalsSystem::test_get_medals_structure PASSED [ 37%]
+test_new_features.py::TestMedalsSystem::test_medals_gold_targets PASSED  [ 50%]
+test_new_features.py::TestMedalsSystem::test_medals_gap_calculation PASSED [ 62%]
+test_new_features.py::TestStravaIntegration::test_strava_profile_connected PASSED [ 75%]
+test_new_features.py::TestStravaIntegration::test_strava_activities_scope_limitation PASSED [ 87%]
+test_new_features.py::TestStravaIntegration::test_strava_sync_returns_scope_message PASSED [100%]
+
+----- generated xml file: /app/test_reports/pytest/pytest_new_features.xml -----
+============================== 8 passed in 1.93s ===============================

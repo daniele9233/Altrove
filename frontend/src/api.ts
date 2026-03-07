@@ -37,5 +37,11 @@ export const api = {
   getSupplements: () => apiFetch('/supplements'),
   getExercises: () => apiFetch('/exercises'),
   getProfile: () => apiFetch('/profile'),
+  updateProfile: (data: { age?: number; weight_kg?: number }) =>
+    apiFetch('/profile', { method: 'PATCH', body: JSON.stringify(data) }),
   getWeeklyHistory: () => apiFetch('/weekly-history'),
+  getMedals: () => apiFetch('/medals'),
+  getStravaProfile: () => apiFetch('/strava/profile'),
+  getStravaActivities: () => apiFetch('/strava/activities'),
+  syncStrava: () => apiFetch('/strava/sync', { method: 'POST' }),
 };

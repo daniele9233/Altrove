@@ -1,7 +1,7 @@
 import React, { useState, useCallback } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
-  ActivityIndicator, RefreshControl,
+  ActivityIndicator, TextInput, Modal, Alert, Image,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -16,18 +16,34 @@ export default function ProfiloScreen() {
   const [supplements, setSupplements] = useState<Supplement[]>([]);
   const [exercises, setExercises] = useState<Exercise[]>([]);
   const [tests, setTests] = useState<any>(null);
+  const [medals, setMedals] = useState<any>({});
+  const [stravaProfile, setStravaProfile] = useState<any>(null);
+  const [stravaError, setStravaError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<'profilo' | 'integratori' | 'esercizi' | 'test'>('profilo');
+  const [activeTab, setActiveTab] = useState<'profilo' | 'medaglie' | 'integratori' | 'esercizi' | 'test'>('profilo');
+  const [editModal, setEditModal] = useState(false);
+  const [editAge, setEditAge] = useState('');
+  const [editWeight, setEditWeight] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [syncing, setSyncing] = useState(false);
 
   const loadData = async () => {
     try {
-      const [p, s, e, t] = await Promise.all([
-        api.getProfile(), api.getSupplements(), api.getExercises(), api.getTests()
+      const [p, s, e, t, m] = await Promise.all([
+        api.getProfile(), api.getSupplements(), api.getExercises(), api.getTests(), api.getMedals()
       ]);
       setProfile(p);
       setSupplements(s.supplements || []);
       setExercises(e.exercises || []);
       setTests(t);
+      setMedals(m.medals || {});
+
+      try {
+        const sp = await api.getStravaProfile();
+        setStravaProfile(sp);
+      } catch {
+        setStravaError('Strava non raggiungibile');
+      }
     } catch (e) {
       console.error(e);
     } finally {
@@ -36,6 +52,42 @@ export default function ProfiloScreen() {
   };
 
   useFocusEffect(useCallback(() => { loadData(); }, []));
+
+  const handleEditProfile = async () => {
+    const updates: any = {};
+    if (editAge && parseInt(editAge) > 0) updates.age = parseInt(editAge);
+    if (editWeight && parseFloat(editWeight) > 0) updates.weight_kg = parseFloat(editWeight);
+    if (Object.keys(updates).length === 0) return;
+
+    setSaving(true);
+    try {
+      const updated = await api.updateProfile(updates);
+      setProfile(updated);
+      setEditModal(false);
+      setEditAge('');
+      setEditWeight('');
+    } catch {
+      Alert.alert('Errore', 'Impossibile aggiornare il profilo');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleStravaSync = async () => {
+    setSyncing(true);
+    try {
+      const result = await api.syncStrava();
+      if (result.needs_reauth) {
+        Alert.alert('Strava', result.message || 'Serve ri-autorizzare con scope activity:read');
+      } else {
+        Alert.alert('Strava', `Sincronizzate ${result.synced} nuove attività`);
+      }
+    } catch {
+      Alert.alert('Errore', 'Errore durante la sincronizzazione');
+    } finally {
+      setSyncing(false);
+    }
+  };
 
   if (loading) {
     return (
@@ -47,8 +99,9 @@ export default function ProfiloScreen() {
 
   const tabs = [
     { key: 'profilo', label: 'PROFILO', icon: 'person' },
+    { key: 'medaglie', label: 'MEDAGLIE', icon: 'medal' },
     { key: 'integratori', label: 'INTEGR.', icon: 'flask' },
-    { key: 'esercizi', label: 'ESERCIZI', icon: 'barbell' },
+    { key: 'esercizi', label: 'ESERC.', icon: 'barbell' },
     { key: 'test', label: 'TEST', icon: 'stopwatch' },
   ] as const;
 
@@ -56,8 +109,7 @@ export default function ProfiloScreen() {
     <SafeAreaView style={styles.container}>
       <Text style={styles.pageTitle}>PROFILO</Text>
 
-      {/* Tab Switcher */}
-      <View style={styles.tabBar}>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.tabBarScroll} contentContainerStyle={styles.tabBarContent}>
         {tabs.map(tab => (
           <TouchableOpacity
             key={tab.key}
@@ -65,16 +117,61 @@ export default function ProfiloScreen() {
             style={[styles.tab, activeTab === tab.key && styles.tabActive]}
             onPress={() => setActiveTab(tab.key)}
           >
-            <Ionicons name={tab.icon as any} size={16} color={activeTab === tab.key ? COLORS.lime : COLORS.textMuted} />
+            <Ionicons name={tab.icon as any} size={14} color={activeTab === tab.key ? COLORS.lime : COLORS.textMuted} />
             <Text style={[styles.tabText, activeTab === tab.key && styles.tabTextActive]}>{tab.label}</Text>
           </TouchableOpacity>
         ))}
-      </View>
+      </ScrollView>
 
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
         {activeTab === 'profilo' && profile && (
           <>
-            {/* Stats */}
+            {/* Strava Connection */}
+            <View style={styles.stravaCard}>
+              <View style={styles.stravaHeader}>
+                <View style={styles.stravaLogo}>
+                  <Ionicons name="logo-google" size={18} color="#FC4C02" />
+                </View>
+                <View style={styles.stravaInfo}>
+                  <Text style={styles.stravaTitle}>STRAVA</Text>
+                  {stravaProfile ? (
+                    <Text style={styles.stravaName}>{stravaProfile.name} • Connesso</Text>
+                  ) : (
+                    <Text style={styles.stravaDisconnected}>{stravaError || 'Non connesso'}</Text>
+                  )}
+                </View>
+                <TouchableOpacity
+                  testID="strava-sync-btn"
+                  style={styles.syncBtn}
+                  onPress={handleStravaSync}
+                  disabled={syncing}
+                >
+                  {syncing ? (
+                    <ActivityIndicator size="small" color={COLORS.limeDark} />
+                  ) : (
+                    <>
+                      <Ionicons name="sync" size={14} color={COLORS.limeDark} />
+                      <Text style={styles.syncText}>SYNC</Text>
+                    </>
+                  )}
+                </TouchableOpacity>
+              </View>
+              {stravaProfile && (
+                <Text style={styles.stravaNote}>Profilo Strava connesso. Per sincronizzare le attività, serve il permesso activity:read.</Text>
+              )}
+            </View>
+
+            {/* Stats with Edit */}
+            <View style={styles.statsHeader}>
+              <Text style={styles.sectionTitle}>DATI PERSONALI</Text>
+              <TouchableOpacity testID="edit-profile-btn" onPress={() => {
+                setEditAge(String(profile.age));
+                setEditWeight(String(profile.weight_kg));
+                setEditModal(true);
+              }}>
+                <Ionicons name="pencil" size={18} color={COLORS.lime} />
+              </TouchableOpacity>
+            </View>
             <View style={styles.statsGrid}>
               <View style={styles.statCard}>
                 <Text style={styles.statLabel}>ETÀ</Text>
@@ -125,6 +222,57 @@ export default function ProfiloScreen() {
               <Text style={styles.infoText}>{profile.mouth_tape?.benefits}</Text>
               <Text style={styles.infoProtocol}>Protocollo: {profile.mouth_tape?.protocol}</Text>
             </View>
+          </>
+        )}
+
+        {activeTab === 'medaglie' && (
+          <>
+            <Text style={styles.introText}>Obiettivi di tempo per conquistare la medaglia d'oro su ogni distanza</Text>
+            {Object.entries(medals).map(([dist, medal]: [string, any]) => {
+              const isGold = medal.status === 'gold';
+              const isSilver = medal.status === 'silver';
+              const isLocked = medal.status === 'locked';
+              return (
+                <View key={dist} style={[styles.medalCard, isGold && styles.medalGold, isSilver && styles.medalSilver]}>
+                  <View style={styles.medalHeader}>
+                    <View style={styles.medalIconContainer}>
+                      <Text style={styles.medalIcon}>
+                        {isGold ? '🥇' : isSilver ? '🥈' : '🔒'}
+                      </Text>
+                    </View>
+                    <View style={styles.medalInfo}>
+                      <Text style={styles.medalDist}>{dist.toUpperCase()}</Text>
+                      <Text style={styles.medalStatus}>
+                        {isGold ? 'ORO CONQUISTATO!' : isSilver ? 'ARGENTO - Obiettivo in vista!' : 'DA SBLOCCARE'}
+                      </Text>
+                    </View>
+                  </View>
+                  <View style={styles.medalTargets}>
+                    <View style={styles.medalTarget}>
+                      <Text style={styles.medalTargetLabel}>TARGET ORO</Text>
+                      <Text style={styles.medalTargetValue}>{medal.gold_target}</Text>
+                      <Text style={styles.medalTargetPace}>{medal.gold_pace}/km</Text>
+                    </View>
+                    {isSilver && medal.gap_seconds && (
+                      <View style={styles.medalTarget}>
+                        <Text style={styles.medalTargetLabel}>GAP</Text>
+                        <Text style={[styles.medalTargetValue, { color: COLORS.orange }]}>
+                          {Math.floor(medal.gap_seconds / 60)}:{String(medal.gap_seconds % 60).padStart(2, '0')}
+                        </Text>
+                        <Text style={styles.medalTargetPace}>da recuperare</Text>
+                      </View>
+                    )}
+                  </View>
+                  {isSilver && (
+                    <View style={styles.medalProgress}>
+                      <View style={styles.medalProgressBar}>
+                        <View style={[styles.medalProgressFill, { width: `${Math.max(10, 100 - (medal.gap_seconds / 10))}%` }]} />
+                      </View>
+                    </View>
+                  )}
+                </View>
+              );
+            })}
           </>
         )}
 
@@ -234,16 +382,56 @@ export default function ProfiloScreen() {
 
         <View style={{ height: 40 }} />
       </ScrollView>
+
+      {/* Edit Profile Modal */}
+      <Modal visible={editModal} transparent animationType="fade">
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>MODIFICA PROFILO</Text>
+
+            <Text style={styles.modalLabel}>ETÀ</Text>
+            <TextInput
+              testID="edit-age-input"
+              style={styles.modalInput}
+              value={editAge}
+              onChangeText={setEditAge}
+              keyboardType="number-pad"
+              placeholder="Età"
+              placeholderTextColor={COLORS.textMuted}
+            />
+
+            <Text style={styles.modalLabel}>PESO (KG)</Text>
+            <TextInput
+              testID="edit-weight-input"
+              style={styles.modalInput}
+              value={editWeight}
+              onChangeText={setEditWeight}
+              keyboardType="decimal-pad"
+              placeholder="Peso in kg"
+              placeholderTextColor={COLORS.textMuted}
+            />
+
+            <View style={styles.modalButtons}>
+              <TouchableOpacity testID="cancel-edit-btn" style={styles.modalCancelBtn} onPress={() => setEditModal(false)}>
+                <Text style={styles.modalCancelText}>ANNULLA</Text>
+              </TouchableOpacity>
+              <TouchableOpacity testID="save-edit-btn" style={styles.modalSaveBtn} onPress={handleEditProfile} disabled={saving}>
+                <Text style={styles.modalSaveText}>{saving ? '...' : 'SALVA'}</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
 
 function getCategoryColor(cat: string) {
   const map: Record<string, string> = {
-    tendini: COLORS.orange, vitamine: COLORS.green, performance: COLORS.lime,
-    minerali: COLORS.blue, anti_infiammatorio: COLORS.red,
+    tendini: COLORS.orange, vitamine: '#22c55e', performance: COLORS.lime,
+    minerali: '#3b82f6', anti_infiammatorio: '#ef4444',
   };
-  return map[cat] || COLORS.textSecondary;
+  return map[cat] || '#a1a1aa';
 }
 
 function formatDate(dateStr: string) {
@@ -256,60 +444,108 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: COLORS.bg },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   pageTitle: { fontSize: FONT_SIZES.xxl, color: COLORS.text, fontWeight: '800', paddingHorizontal: SPACING.xl, paddingTop: SPACING.lg },
-  tabBar: {
-    flexDirection: 'row', marginHorizontal: SPACING.xl, marginTop: SPACING.lg,
-    backgroundColor: COLORS.card, borderRadius: BORDER_RADIUS.lg,
-    borderWidth: 1, borderColor: COLORS.cardBorder, padding: 4,
-  },
+  tabBarScroll: { flexGrow: 0, marginTop: SPACING.lg },
+  tabBarContent: { paddingHorizontal: SPACING.xl, gap: SPACING.sm },
   tab: {
-    flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
-    gap: 4, paddingVertical: SPACING.sm, borderRadius: BORDER_RADIUS.md,
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+    gap: 4, paddingVertical: SPACING.sm, paddingHorizontal: SPACING.md,
+    borderRadius: BORDER_RADIUS.full, backgroundColor: COLORS.card,
+    borderWidth: 1, borderColor: COLORS.cardBorder,
   },
-  tabActive: { backgroundColor: 'rgba(190, 242, 100, 0.15)' },
+  tabActive: { backgroundColor: 'rgba(190, 242, 100, 0.15)', borderColor: 'rgba(190, 242, 100, 0.3)' },
   tabText: { fontSize: FONT_SIZES.xs, color: COLORS.textMuted, fontWeight: '600' },
   tabTextActive: { color: COLORS.lime },
   scrollContent: { paddingTop: SPACING.lg },
-  introText: { fontSize: FONT_SIZES.md, color: COLORS.textSecondary, marginHorizontal: SPACING.xl, marginBottom: SPACING.lg, lineHeight: 22 },
-  statsGrid: {
-    flexDirection: 'row', flexWrap: 'wrap', gap: SPACING.sm,
-    marginHorizontal: SPACING.xl,
+  introText: { fontSize: FONT_SIZES.md, color: COLORS.textSecondary, marginHorizontal: SPACING.xl, marginBottom: SPACING.lg, lineHeight: 22, flex: 1 },
+
+  // Strava
+  stravaCard: {
+    marginHorizontal: SPACING.xl, marginBottom: SPACING.lg,
+    backgroundColor: COLORS.card, borderRadius: BORDER_RADIUS.lg,
+    padding: SPACING.lg, borderWidth: 1, borderColor: '#FC4C0240',
   },
+  stravaHeader: { flexDirection: 'row', alignItems: 'center', gap: SPACING.md },
+  stravaLogo: { width: 36, height: 36, borderRadius: 18, backgroundColor: '#FC4C0220', alignItems: 'center', justifyContent: 'center' },
+  stravaInfo: { flex: 1 },
+  stravaTitle: { fontSize: FONT_SIZES.xs, color: '#FC4C02', fontWeight: '700', letterSpacing: 2 },
+  stravaName: { fontSize: FONT_SIZES.md, color: COLORS.text, fontWeight: '600', marginTop: 2 },
+  stravaDisconnected: { fontSize: FONT_SIZES.sm, color: COLORS.textMuted, marginTop: 2 },
+  syncBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 4,
+    backgroundColor: COLORS.lime, borderRadius: BORDER_RADIUS.full,
+    paddingHorizontal: SPACING.md, paddingVertical: SPACING.sm,
+  },
+  syncText: { fontSize: FONT_SIZES.xs, color: COLORS.limeDark, fontWeight: '700' },
+  stravaNote: { fontSize: FONT_SIZES.xs, color: COLORS.textMuted, marginTop: SPACING.sm, lineHeight: 18 },
+
+  // Stats
+  statsHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginHorizontal: SPACING.xl, marginBottom: SPACING.md },
+  sectionTitle: {
+    fontSize: FONT_SIZES.sm, color: COLORS.lime, fontWeight: '700', letterSpacing: 2,
+    marginHorizontal: SPACING.xl, marginTop: SPACING.xxl, marginBottom: SPACING.md,
+  },
+  statsGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: SPACING.sm, marginHorizontal: SPACING.xl },
   statCard: {
     width: '48%', backgroundColor: COLORS.card, borderRadius: BORDER_RADIUS.lg,
     padding: SPACING.lg, borderWidth: 1, borderColor: COLORS.cardBorder, flexGrow: 1,
   },
   statLabel: { fontSize: FONT_SIZES.xs, color: COLORS.textMuted, fontWeight: '600', letterSpacing: 1 },
   statValue: { fontSize: FONT_SIZES.xl, color: COLORS.text, fontWeight: '800', marginTop: 4 },
-  sectionTitle: {
-    fontSize: FONT_SIZES.sm, color: COLORS.lime, fontWeight: '700', letterSpacing: 2,
-    marginHorizontal: SPACING.xl, marginTop: SPACING.xxl, marginBottom: SPACING.md,
-  },
+
+  // PBs
   pbGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: SPACING.sm, marginHorizontal: SPACING.xl },
   pbCard: {
     backgroundColor: COLORS.card, borderRadius: BORDER_RADIUS.lg,
-    padding: SPACING.lg, borderWidth: 1, borderColor: 'rgba(190, 242, 100, 0.2)',
-    width: '48%', flexGrow: 1,
+    padding: SPACING.lg, borderWidth: 1, borderColor: 'rgba(190, 242, 100, 0.2)', width: '48%', flexGrow: 1,
   },
   pbDist: { fontSize: FONT_SIZES.xs, color: COLORS.lime, fontWeight: '700', letterSpacing: 1 },
   pbTime: { fontSize: FONT_SIZES.xl, color: COLORS.text, fontWeight: '800', marginTop: 4 },
   pbPace: { fontSize: FONT_SIZES.sm, color: COLORS.textSecondary, marginTop: 2 },
   pbDate: { fontSize: FONT_SIZES.xs, color: COLORS.textMuted, marginTop: 4 },
+
+  // Injury
   injuryCard: {
     marginHorizontal: SPACING.xl, backgroundColor: COLORS.card, borderRadius: BORDER_RADIUS.lg,
-    padding: SPACING.lg, borderWidth: 1, borderColor: 'rgba(249, 115, 22, 0.3)',
-    flexDirection: 'row', gap: SPACING.md,
+    padding: SPACING.lg, borderWidth: 1, borderColor: 'rgba(249, 115, 22, 0.3)', flexDirection: 'row', gap: SPACING.md,
   },
   injuryInfo: { flex: 1 },
   injuryType: { fontSize: FONT_SIZES.md, color: COLORS.orange, fontWeight: '700' },
   injuryStatus: { fontSize: FONT_SIZES.sm, color: COLORS.text, marginTop: 4 },
   injuryDetail: { fontSize: FONT_SIZES.sm, color: COLORS.textSecondary, marginTop: 4, lineHeight: 20 },
+
+  // Info Card
   infoCard: {
     marginHorizontal: SPACING.xl, backgroundColor: COLORS.card, borderRadius: BORDER_RADIUS.lg,
     padding: SPACING.lg, borderWidth: 1, borderColor: COLORS.cardBorder,
   },
   infoRecommendation: { fontSize: FONT_SIZES.md, color: COLORS.lime, fontWeight: '700' },
   infoText: { fontSize: FONT_SIZES.md, color: COLORS.textSecondary, marginTop: SPACING.sm, lineHeight: 22 },
-  infoProtocol: { fontSize: FONT_SIZES.sm, color: COLORS.blue, marginTop: SPACING.sm, fontStyle: 'italic' },
+  infoProtocol: { fontSize: FONT_SIZES.sm, color: '#3b82f6', marginTop: SPACING.sm, fontStyle: 'italic' },
+
+  // Medals
+  medalCard: {
+    marginHorizontal: SPACING.xl, marginBottom: SPACING.md,
+    backgroundColor: COLORS.card, borderRadius: BORDER_RADIUS.lg,
+    padding: SPACING.lg, borderWidth: 1, borderColor: COLORS.cardBorder,
+  },
+  medalGold: { borderColor: '#fbbf24', backgroundColor: 'rgba(251, 191, 36, 0.08)' },
+  medalSilver: { borderColor: 'rgba(190, 242, 100, 0.3)', backgroundColor: 'rgba(190, 242, 100, 0.05)' },
+  medalHeader: { flexDirection: 'row', alignItems: 'center', gap: SPACING.md },
+  medalIconContainer: { width: 48, height: 48, borderRadius: 24, backgroundColor: 'rgba(255,255,255,0.05)', alignItems: 'center', justifyContent: 'center' },
+  medalIcon: { fontSize: 28 },
+  medalInfo: { flex: 1 },
+  medalDist: { fontSize: FONT_SIZES.xl, color: COLORS.text, fontWeight: '900' },
+  medalStatus: { fontSize: FONT_SIZES.xs, color: COLORS.lime, fontWeight: '700', letterSpacing: 1, marginTop: 2 },
+  medalTargets: { flexDirection: 'row', gap: SPACING.xxl, marginTop: SPACING.lg },
+  medalTarget: { alignItems: 'center' },
+  medalTargetLabel: { fontSize: FONT_SIZES.xs, color: COLORS.textMuted, fontWeight: '600', letterSpacing: 1 },
+  medalTargetValue: { fontSize: FONT_SIZES.xl, color: '#fbbf24', fontWeight: '800', marginTop: 4 },
+  medalTargetPace: { fontSize: FONT_SIZES.xs, color: COLORS.textMuted, marginTop: 2 },
+  medalProgress: { marginTop: SPACING.md },
+  medalProgressBar: { height: 6, backgroundColor: COLORS.cardBorder, borderRadius: 3, overflow: 'hidden' },
+  medalProgressFill: { height: '100%', backgroundColor: COLORS.lime, borderRadius: 3 },
+
+  // Supplements
   suppCard: {
     marginHorizontal: SPACING.xl, marginBottom: SPACING.md,
     backgroundColor: COLORS.card, borderRadius: BORDER_RADIUS.lg,
@@ -323,6 +559,8 @@ const styles = StyleSheet.create({
   suppTimingRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: SPACING.sm },
   suppTiming: { fontSize: FONT_SIZES.sm, color: COLORS.lime, fontWeight: '600' },
   suppPurpose: { fontSize: FONT_SIZES.sm, color: COLORS.textMuted, marginTop: SPACING.sm, lineHeight: 20 },
+
+  // Exercises
   exCard: {
     marginHorizontal: SPACING.xl, marginBottom: SPACING.md,
     backgroundColor: COLORS.card, borderRadius: BORDER_RADIUS.lg,
@@ -337,6 +575,8 @@ const styles = StyleSheet.create({
   exStatValue: { fontSize: FONT_SIZES.md, color: COLORS.lime, fontWeight: '700' },
   exStatLabel: { fontSize: FONT_SIZES.xs, color: COLORS.textMuted, marginTop: 2 },
   exNotes: { fontSize: FONT_SIZES.sm, color: COLORS.textSecondary, marginTop: SPACING.sm, lineHeight: 20 },
+
+  // Tests
   testHeaderRow: {
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start',
     marginHorizontal: SPACING.xl, marginBottom: SPACING.md,
@@ -369,4 +609,33 @@ const styles = StyleSheet.create({
   resultStats: { flexDirection: 'row', justifyContent: 'space-between', marginTop: SPACING.sm },
   resultValue: { fontSize: FONT_SIZES.lg, color: COLORS.text, fontWeight: '700' },
   resultPace: { fontSize: FONT_SIZES.lg, color: COLORS.lime, fontWeight: '800' },
+
+  // Edit Modal
+  modalOverlay: {
+    flex: 1, backgroundColor: 'rgba(0,0,0,0.7)',
+    justifyContent: 'center', alignItems: 'center', padding: SPACING.xl,
+  },
+  modalContent: {
+    backgroundColor: COLORS.card, borderRadius: BORDER_RADIUS.xl,
+    padding: SPACING.xxl, width: '100%', maxWidth: 340,
+    borderWidth: 1, borderColor: COLORS.cardBorder,
+  },
+  modalTitle: { fontSize: FONT_SIZES.lg, color: COLORS.text, fontWeight: '800', letterSpacing: 1, marginBottom: SPACING.lg },
+  modalLabel: { fontSize: FONT_SIZES.xs, color: COLORS.textMuted, fontWeight: '700', letterSpacing: 1, marginTop: SPACING.md, marginBottom: SPACING.sm },
+  modalInput: {
+    backgroundColor: COLORS.inputBg, borderWidth: 1, borderColor: COLORS.cardBorder,
+    borderRadius: BORDER_RADIUS.md, paddingHorizontal: SPACING.lg, paddingVertical: SPACING.md,
+    fontSize: FONT_SIZES.body, color: COLORS.text,
+  },
+  modalButtons: { flexDirection: 'row', gap: SPACING.md, marginTop: SPACING.xxl },
+  modalCancelBtn: {
+    flex: 1, borderWidth: 1, borderColor: COLORS.cardBorder,
+    borderRadius: BORDER_RADIUS.full, paddingVertical: SPACING.md, alignItems: 'center',
+  },
+  modalCancelText: { fontSize: FONT_SIZES.sm, color: COLORS.textMuted, fontWeight: '700' },
+  modalSaveBtn: {
+    flex: 1, backgroundColor: COLORS.lime,
+    borderRadius: BORDER_RADIUS.full, paddingVertical: SPACING.md, alignItems: 'center',
+  },
+  modalSaveText: { fontSize: FONT_SIZES.sm, color: COLORS.limeDark, fontWeight: '800' },
 });
