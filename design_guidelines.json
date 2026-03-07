@@ -1,0 +1,115 @@
+{
+  "identity": {
+    "name": "E1",
+    "persona": "The Anti-AI Designer",
+    "archetype": "The Performance Pro",
+    "tone": "Athletic, Serious, Tactical, High-Contrast",
+    "mission": "Create a thumb-friendly, visually striking training companion that motivates through data clarity and bold aesthetics."
+  },
+  "tech_stack": {
+    "framework": "React Native (Expo)",
+    "styling": "Tailwind CSS (NativeWind or twrnc)",
+    "icons": "Lucide React Native or Expo Vector Icons",
+    "navigation": "Expo Router"
+  },
+  "typography": {
+    "font_family_headings": "Barlow Condensed, sans-serif",
+    "font_family_body": "Inter, sans-serif",
+    "font_family_data": "JetBrains Mono, monospace",
+    "scale": {
+      "h1": "text-5xl font-black tracking-tighter uppercase",
+      "h2": "text-3xl font-bold tracking-tight uppercase",
+      "h3": "text-xl font-semibold tracking-wide uppercase",
+      "body": "text-base font-normal leading-relaxed",
+      "caption": "text-xs font-medium tracking-widest text-zinc-400 uppercase",
+      "data_large": "text-4xl font-mono font-bold tracking-tighter",
+      "data_medium": "text-2xl font-mono font-semibold"
+    }
+  },
+  "colors": {
+    "background": {
+      "default": "#09090b",
+      "card": "#18181b",
+      "overlay": "rgba(9, 9, 11, 0.8)"
+    },
+    "text": {
+      "primary": "#f4f4f5",
+      "secondary": "#a1a1aa",
+      "muted": "#52525b"
+    },
+    "brand": {
+      "primary": "#bef264",
+      "primary_foreground": "#1a2e05",
+      "secondary": "#3b82f6",
+      "accent": "#f97316"
+    },
+    "functional": {
+      "success": "#bef264",
+      "warning": "#f97316",
+      "error": "#ef4444",
+      "info": "#3b82f6",
+      "hr_zone_1": "#71717a",
+      "hr_zone_2": "#3b82f6",
+      "hr_zone_3": "#22c55e",
+      "hr_zone_4": "#f97316",
+      "hr_zone_5": "#ef4444"
+    }
+  },
+  "layout_strategy": {
+    "spacing": {
+      "container_padding": "p-5",
+      "section_gap": "gap-6",
+      "item_gap": "gap-3"
+    },
+    "grid_system": "Bento Grid (Flexbox/Grid)",
+    "containers": "Rounded-xl or Rounded-2xl (consistent)",
+    "safe_area": "Always wrap main content in SafeAreaView"
+  },
+  "components": {
+    "buttons": {
+      "primary": "bg-lime-400 rounded-full px-8 py-4 active:scale-95 transition-transform",
+      "primary_text": "text-zinc-950 font-bold uppercase tracking-wider text-sm",
+      "secondary": "bg-zinc-800 border border-zinc-700 rounded-full px-6 py-3",
+      "secondary_text": "text-zinc-100 font-semibold uppercase tracking-wide text-xs"
+    },
+    "cards": {
+      "base": "bg-zinc-900 border border-zinc-800 rounded-2xl p-5 shadow-lg",
+      "highlight": "bg-zinc-900 border border-lime-400/30 rounded-2xl p-5 shadow-[0_0_15px_rgba(190,242,100,0.1)]",
+      "glass": "bg-zinc-900/80 backdrop-blur-md border border-white/10 rounded-2xl p-5"
+    },
+    "inputs": {
+      "base": "bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-zinc-100 placeholder:text-zinc-600 focus:border-lime-400"
+    }
+  },
+  "visual_enhancers": {
+    "gradients": "Use subtle linear gradients for card backgrounds (e.g., zinc-900 to zinc-950). Avoid full-screen gradients.",
+    "borders": "1px borders (zinc-800) are mandatory for all cards to define hierarchy in dark mode.",
+    "shadows": "Glow effects for active elements (lime-400 glow).",
+    "textures": "Optional subtle noise texture on background for depth."
+  },
+  "image_urls": {
+    "hero_runner": "https://images.unsplash.com/photo-1712226092570-31412c4dd80b?crop=entropy&cs=srgb&fm=jpg&q=85",
+    "fuerteventura_landscape": "https://images.unsplash.com/photo-1663931340772-e0017ee7d6b1?crop=entropy&cs=srgb&fm=jpg&q=85",
+    "exercise_squat": "https://images.unsplash.com/photo-1662385930032-d9286e02325f?crop=entropy&cs=srgb&fm=jpg&q=85",
+    "runner_motion": "https://images.unsplash.com/photo-1766970096320-c62c49517226?crop=entropy&cs=srgb&fm=jpg&q=85",
+    "abstract_energy": "https://images.unsplash.com/photo-1543273984-bb8287d2fc4e?crop=entropy&cs=srgb&fm=jpg&q=85"
+  },
+  "universal_guidelines": [
+    "ALL TEXT MUST BE IN ITALIAN.",
+    "Use React Native primitives: View, Text, Pressable, ScrollView, FlatList, Image.",
+    "DO NOT use HTML tags (div, span, h1, etc.).",
+    "Ensure all touch targets are at least 44x44 points.",
+    "Use 'Barlow Condensed' for all headers (H1-H3) and 'Inter' for body text.",
+    "Data numbers must be Monospace (JetBrains Mono or similar) for alignment.",
+    "Dark Mode is the ONLY mode. Hardcode colors if necessary, or use dark-only theme config.",
+    "Interactive elements must have active states (opacity change or scale).",
+    "Charts should use the defined functional colors for zones.",
+    "Add 'data-testid' prop to all interactive elements."
+  ],
+  "content_strategy": {
+    "date_format": "DD MMM YYYY (Italian locale)",
+    "units": "Metric (km, min/km)",
+    "tone": "Motivational but disciplined. 'Forza!', 'Ottimo lavoro', 'Recupero'."
+  },
+  "instructions_to_main_agent": "You are building a React Native Expo app. Use the provided colors and typography to build a high-contrast, 'Garmin-on-steroids' dark mode interface. Focus on the Dashboard first: it should look like a tactical command center for the runner. Use the 'Bento Grid' layout for the home screen widgets. Ensure the 'Training Plan' view is clear and skimmable."
+}
