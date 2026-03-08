@@ -56,6 +56,7 @@ export const SESSION_COLORS: Record<string, string> = {
   corsa_lenta: '#3b82f6',
   lungo: '#8b5cf6',
   ripetute: '#ef4444',
+  ripetute_salita: '#f59e0b',  // Amber for hill repeats
   progressivo: '#f97316',
   rinforzo: '#22c55e',
   cyclette: '#06b6d4',
@@ -68,6 +69,7 @@ export const SESSION_ICONS: Record<string, string> = {
   corsa_lenta: 'walk',
   lungo: 'trending-up',
   ripetute: 'flash',
+  ripetute_salita: 'arrow-up-circle',  // For hill repeats
   progressivo: 'arrow-up',
   rinforzo: 'barbell',
   cyclette: 'bicycle',

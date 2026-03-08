@@ -90,6 +90,8 @@ class SessionCompleteRequest(BaseModel):
 class ProfileUpdateRequest(BaseModel):
     age: Optional[int] = None
     weight_kg: Optional[float] = None
+    max_hr: Optional[int] = None
+    max_weekly_km: Optional[int] = None
 
 # ====== HELPER FUNCTIONS ======
 
@@ -192,34 +194,39 @@ def generate_week_sessions(phase, week_num, target_km, week_start, phase_week, t
             {"day": 6, "type": "lungo", "title": "Lungo", "desc": "Corsa lunga progressiva", "km": round(target_km * 0.3, 1), "pace": "5:20", "dur": None},
         ]
     elif phase == "Sviluppo":
+        # Aggiungiamo ripetute in salita per stimolo neuromuscolare
         templates = [
             {"day": 0, "type": "corsa_lenta", "title": "Corsa Lenta", "desc": "Recupero attivo", "km": round(target_km * 0.13, 1), "pace": "5:25", "dur": None},
-            {"day": 1, "type": "ripetute", "title": "Ripetute Medie", "desc": "2km riscaldamento + 5x2000m a 4:35 (rec 2:30) + defaticamento", "km": round(target_km * 0.22, 1), "pace": "4:35", "dur": None},
+            {"day": 1, "type": "ripetute_salita", "title": "Ripetute in Salita", "desc": "2km riscaldamento + 8x60sec salita forte (rec discesa) + 2km defaticamento. Grande stimolo neuromuscolare!", "km": round(target_km * 0.18, 1), "pace": "max", "dur": None},
             {"day": 2, "type": "cyclette", "title": "Cyclette Recupero", "desc": "45min cyclette + core stability", "km": 0, "pace": None, "dur": 45},
-            {"day": 3, "type": "progressivo", "title": "Medio Progressivo", "desc": "8km progressivo da 5:15 a 4:40", "km": round(target_km * 0.18, 1), "pace": "4:55", "dur": None},
+            {"day": 3, "type": "ripetute", "title": "Ripetute Medie", "desc": "2km riscaldamento + 5x2000m a 4:35 (rec 2:30) + defaticamento", "km": round(target_km * 0.22, 1), "pace": "4:35", "dur": None},
             {"day": 4, "type": "rinforzo", "title": "Rinforzo + Riposo", "desc": "Rinforzo muscolare specifico runner", "km": 0, "pace": None, "dur": 45},
-            {"day": 5, "type": "corsa_lenta", "title": "Corsa Pre-Lungo", "desc": "Corsa facile + allunghi", "km": round(target_km * 0.14, 1), "pace": "5:20", "dur": None},
-            {"day": 6, "type": "lungo", "title": "Lungo Progressivo", "desc": "Lungo con ultimi 3km a ritmo gara", "km": round(target_km * 0.33, 1), "pace": "5:10", "dur": None},
+            {"day": 5, "type": "corsa_lenta", "title": "Corsa Pre-Lungo", "desc": "Corsa facile + allunghi", "km": round(target_km * 0.12, 1), "pace": "5:20", "dur": None},
+            {"day": 6, "type": "lungo", "title": "Lungo Progressivo", "desc": "Lungo con ultimi 3km a ritmo gara", "km": min(round(target_km * 0.35, 1), 20), "pace": "5:10", "dur": None},
         ]
     elif phase == "Preparazione Specifica":
+        # Lungo fino a 22km e ripetute in salita alternate
+        long_km = min(round(target_km * 0.38, 1), 22)  # Max 22km
         templates = [
             {"day": 0, "type": "corsa_lenta", "title": "Corsa Lenta", "desc": "Recupero", "km": round(target_km * 0.12, 1), "pace": "5:20", "dur": None},
             {"day": 1, "type": "ripetute", "title": "Ripetute Gara", "desc": "2km riscaldamento + 4x3000m a 4:30 (rec 3min) + defaticamento", "km": round(target_km * 0.24, 1), "pace": "4:30", "dur": None},
             {"day": 2, "type": "cyclette", "title": "Cyclette + Core", "desc": "50min cyclette moderata + core stability", "km": 0, "pace": None, "dur": 50},
-            {"day": 3, "type": "progressivo", "title": "Tempo Run", "desc": "10km a ritmo medio-veloce 4:40-4:35", "km": round(target_km * 0.2, 1), "pace": "4:38", "dur": None},
+            {"day": 3, "type": "ripetute_salita", "title": "Ripetute Salita", "desc": "2km riscaldamento + 10x45sec salita forte (rec discesa) + 2km defaticamento. Forza esplosiva!", "km": round(target_km * 0.15, 1), "pace": "max", "dur": None},
             {"day": 4, "type": "riposo", "title": "Riposo", "desc": "Recupero completo + stretching", "km": 0, "pace": None, "dur": 0},
-            {"day": 5, "type": "corsa_lenta", "title": "Corsa Facile", "desc": "Corsa facile + 8 allunghi", "km": round(target_km * 0.13, 1), "pace": "5:15", "dur": None},
-            {"day": 6, "type": "lungo", "title": "Lungo Specifico", "desc": "Lungo con ultimi 5km a ritmo gara 4:30", "km": round(target_km * 0.31, 1), "pace": "5:00", "dur": None},
+            {"day": 5, "type": "corsa_lenta", "title": "Corsa Facile", "desc": "Corsa facile + 8 allunghi", "km": round(target_km * 0.11, 1), "pace": "5:15", "dur": None},
+            {"day": 6, "type": "lungo", "title": "Lungo Specifico 22km", "desc": f"Lungo {long_km}km con ultimi 5km a ritmo gara 4:30. Simulazione mezza maratona!", "km": long_km, "pace": "5:00", "dur": None},
         ]
     elif phase == "Picco":
+        # Lungo fino a 24km, massima specificità
+        long_km = min(round(target_km * 0.42, 1), 24)  # Max 24km
         templates = [
             {"day": 0, "type": "corsa_lenta", "title": "Corsa Lenta", "desc": "Recupero attivo", "km": round(target_km * 0.12, 1), "pace": "5:15", "dur": None},
-            {"day": 1, "type": "ripetute", "title": "Ripetute Veloci", "desc": "2km riscaldamento + 8x1000m a 4:15 (rec 2min) + defaticamento", "km": round(target_km * 0.22, 1), "pace": "4:15", "dur": None},
+            {"day": 1, "type": "ripetute", "title": "Ripetute Veloci", "desc": "2km riscaldamento + 8x1000m a 4:15 (rec 2min) + defaticamento", "km": round(target_km * 0.20, 1), "pace": "4:15", "dur": None},
             {"day": 2, "type": "cyclette", "title": "Cyclette Recupero", "desc": "40min cyclette leggera", "km": 0, "pace": None, "dur": 40},
-            {"day": 3, "type": "progressivo", "title": "Simulazione Gara", "desc": "12km progressivo chiudendo a 4:30", "km": round(target_km * 0.22, 1), "pace": "4:45", "dur": None},
+            {"day": 3, "type": "ripetute_salita", "title": "Ripetute Salita Brevi", "desc": "2km riscaldamento + 6x30sec salita esplosiva (rec discesa) + 2km defaticamento", "km": round(target_km * 0.12, 1), "pace": "max", "dur": None},
             {"day": 4, "type": "rinforzo", "title": "Rinforzo Leggero", "desc": "Rinforzo muscolare mantenimento", "km": 0, "pace": None, "dur": 35},
-            {"day": 5, "type": "corsa_lenta", "title": "Corsa Pre-Lungo", "desc": "Corsa facile + allunghi", "km": round(target_km * 0.12, 1), "pace": "5:15", "dur": None},
-            {"day": 6, "type": "lungo", "title": "Lungo di Picco", "desc": "Lungo fino a 20km con ritmo gara negli ultimi 6km", "km": round(target_km * 0.32, 1), "pace": "4:55", "dur": None},
+            {"day": 5, "type": "corsa_lenta", "title": "Corsa Pre-Lungo", "desc": "Corsa facile + allunghi", "km": round(target_km * 0.10, 1), "pace": "5:15", "dur": None},
+            {"day": 6, "type": "lungo", "title": "Lungo di Picco 24km", "desc": f"Lungo {long_km}km: ultimi 8km a ritmo gara 4:30. Ultimo test prima del tapering!", "km": long_km, "pace": "4:55", "dur": None},
         ]
     else:  # Tapering
         progress = phase_week / max(total_phase_weeks - 1, 1)
@@ -1154,6 +1161,8 @@ async def get_adaptation_status():
             "standard": "Mantieni piano attuale"
         }.get(suggestion, "Mantieni piano attuale")
     }
+
+@api_router.get("/profile")
 async def get_profile_data():
     profile = await db.profile.find_one({}, {"_id": 0})
     return profile or {}
@@ -1165,6 +1174,10 @@ async def update_profile(req: ProfileUpdateRequest):
         update_fields["age"] = req.age
     if req.weight_kg is not None:
         update_fields["weight_kg"] = req.weight_kg
+    if req.max_hr is not None:
+        update_fields["max_hr"] = req.max_hr
+    if req.max_weekly_km is not None:
+        update_fields["max_weekly_km"] = req.max_weekly_km
     if not update_fields:
         raise HTTPException(400, "Nessun campo da aggiornare")
     await db.profile.update_one({}, {"$set": update_fields})

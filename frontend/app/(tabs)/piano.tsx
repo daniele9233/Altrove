@@ -171,35 +171,6 @@ export default function PianoScreen() {
         </View>
       </View>
 
-      {/* Auto-Adaptive Plan Card */}
-      {adaptationStatus?.can_adapt && adaptationStatus?.suggestion !== 'standard' && (
-        <TouchableOpacity style={styles.adaptCard} onPress={handleAdaptPlan} disabled={adapting}>
-          <View style={styles.adaptIconContainer}>
-            <Ionicons 
-              name={adaptationStatus.suggestion === 'aggressive' ? 'trending-up' : adaptationStatus.suggestion === 'reduce' ? 'trending-down' : 'flash'} 
-              size={24} 
-              color={adaptationStatus.suggestion === 'reduce' ? COLORS.orange : COLORS.lime} 
-            />
-          </View>
-          <View style={styles.adaptContent}>
-            <Text style={styles.adaptTitle}>PIANO AUTO-ADATTIVO</Text>
-            <Text style={styles.adaptLabel}>
-              {adaptationStatus.improvement_pct > 0 ? 'Miglioramento' : 'Rallentamento'}: {Math.abs(adaptationStatus.improvement_pct).toFixed(1)}%
-            </Text>
-            <Text style={styles.adaptPace}>Passo medio: {adaptationStatus.avg_recent_pace}/km</Text>
-          </View>
-          <View style={[styles.adaptBadge, adaptationStatus.suggestion === 'reduce' && { backgroundColor: 'rgba(249, 115, 22, 0.2)' }]}>
-            {adapting ? (
-              <ActivityIndicator size="small" color={COLORS.lime} />
-            ) : (
-              <Text style={[styles.adaptBadgeText, adaptationStatus.suggestion === 'reduce' && { color: COLORS.orange }]}>
-                {adaptationStatus.suggestion_label}
-              </Text>
-            )}
-          </View>
-        </TouchableOpacity>
-      )}
-
       {viewMode === 'calendar' ? (
         // CALENDAR VIEW
         <ScrollView showsVerticalScrollIndicator={false}>
