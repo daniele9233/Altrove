@@ -867,6 +867,47 @@ async def get_analytics():
     
     current_at = {"hr": at_hr, "pace": at_pace} if at_hr else None
 
+    # ---- ANAEROBIC THRESHOLD HISTORY (every 15 days) ----
+    # Calculate AT for each 15-day period to track progress/regression
+    at_history = []
+    # Start from pre-injury date
+    history_start = date(2025, 11, 1)
+    period_days = 15
+    current_period_start = history_start
+    
+    while current_period_start <= today:
+        period_end = current_period_start + timedelta(days=period_days - 1)
+        period_start_str = current_period_start.isoformat()
+        period_end_str = period_end.isoformat()
+        
+        # Get threshold runs in this period (runs > 20 min with pace < 6:00/km)
+        period_runs = [
+            r for r in valid_runs 
+            if r.get("avg_hr") 
+            and r.get("duration_minutes", 0) > 15 
+            and pace_str_to_secs(r.get("avg_pace", "9:99")) < 400  # < 6:40/km
+            and period_start_str <= r.get("date", "") <= period_end_str
+        ]
+        
+        if period_runs:
+            # Calculate AT from best efforts in this period
+            sorted_runs = sorted(period_runs, key=lambda r: pace_str_to_secs(r.get("avg_pace", "9:99")))
+            best_runs = sorted_runs[:3]  # Top 3 fastest
+            period_at_hr = round(sum(r["avg_hr"] for r in best_runs) / len(best_runs))
+            period_avg_pace_s = sum(pace_str_to_secs(r["avg_pace"]) for r in best_runs) / len(best_runs)
+            period_at_pace = f"{int(period_avg_pace_s // 60)}:{int(period_avg_pace_s % 60):02d}"
+            
+            at_history.append({
+                "period_start": period_start_str,
+                "period_end": period_end_str,
+                "hr": period_at_hr,
+                "pace": period_at_pace,
+                "pace_secs": round(period_avg_pace_s),
+                "runs_count": len(period_runs)
+            })
+        
+        current_period_start += timedelta(days=period_days)
+
     # ---- SUMMARY STATS ----
     total_km = round(sum(r.get("distance_km", 0) for r in valid_runs), 1)
     total_time = round(sum(r.get("duration_minutes", 0) for r in valid_runs), 1)
@@ -889,7 +930,8 @@ async def get_analytics():
         "zone_distribution": zone_distribution,
         "anaerobic_threshold": {
             "current": current_at,
-            "pre_injury": pre_injury_at
+            "pre_injury": pre_injury_at,
+            "history": at_history  # Every 15 days history for progress tracking
         },
         "best_efforts": {k: {"distance": v["distance_km"], "pace": v["avg_pace"], "time": v["duration_minutes"], "date": v["date"], "avg_hr": v.get("avg_hr"), "max_hr": v.get("max_hr")} for k, v in best_efforts.items()},
         "totals": {"total_km": total_km, "total_time_hours": round(total_time / 60, 1), "total_runs": total_runs, "recent_30d_km": recent_km},
@@ -1248,6 +1290,11 @@ async def sync_strava_activities():
         await db.runs.insert_one(run_doc)
         synced += 1
 
+    # ---- AUTO UPDATE PERSONAL BESTS AND MEDALS ----
+    # This runs after every sync to ensure PBs and medals are always up to date
+    if synced > 0 or matched > 0:
+        await update_personal_bests_and_medals()
+
     return {
         "synced": synced,
         "matched": matched,
@@ -1255,6 +1302,52 @@ async def sync_strava_activities():
         "message": f"Sincronizzate {synced} nuove corse, {matched} abbinate a corse esistenti",
         "needs_reauth": False
     }
+
+async def update_personal_bests_and_medals():
+    """Update personal bests and medals based on current runs data"""
+    runs = await db.runs.find({}, {"_id": 0}).to_list(2000)
+    profile = await db.profile.find_one({}, {"_id": 0})
+    if not profile:
+        return
+    
+    # Distance targets for PBs
+    pb_distances = {
+        "4km": 4.0, "5km": 5.0, "6km": 6.0, "10km": 10.0, "15km": 15.0, "21.1km": 21.1
+    }
+    
+    new_pbs = {}
+    for dist_name, dist_km in pb_distances.items():
+        best_run = None
+        best_time = float('inf')
+        for r in runs:
+            run_dist = r.get("distance_km", 0)
+            if abs(run_dist - dist_km) < 0.5:  # Within 500m of target
+                run_time = r.get("duration_minutes", float('inf'))
+                if run_time < best_time:
+                    best_time = run_time
+                    best_run = r
+        
+        if best_run:
+            mins = int(best_time)
+            secs = int((best_time - mins) * 60)
+            if mins >= 60:
+                hours = mins // 60
+                mins = mins % 60
+                time_str = f"{hours}:{mins:02d}:{secs:02d}"
+            else:
+                time_str = f"{mins}:{secs:02d}"
+            
+            new_pbs[dist_name] = {
+                "time": time_str,
+                "pace": best_run.get("avg_pace", "N/A"),
+                "date": best_run.get("date", "N/A")
+            }
+    
+    # Update profile with new PBs
+    if new_pbs:
+        await db.profile.update_one({}, {"$set": {"pbs": new_pbs}})
+    
+    logger.info(f"Updated {len(new_pbs)} personal bests after sync")
 
 @api_router.get("/weekly-history")
 async def get_weekly_history():

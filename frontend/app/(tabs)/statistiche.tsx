@@ -164,6 +164,16 @@ export default function StatisticheScreen() {
               </View>
             </View>
           </View>
+          
+          {/* AT History Chart (every 15 days) */}
+          {anaerobic_threshold?.history && anaerobic_threshold.history.length > 0 && (
+            <View style={styles.atHistorySection}>
+              <Text style={[styles.atSubtitle, { color: COLORS.lime, marginBottom: SPACING.md }]}>
+                PROGRESSI (ogni 15 giorni)
+              </Text>
+              <ATHistoryChart history={anaerobic_threshold.history} targetPace={260} />
+            </View>
+          )}
         </View>
 
         {/* HR Zone Distribution with BPM Ranges */}
@@ -368,6 +378,81 @@ function WeeklyVolumeChart({ data }: { data: any[] }) {
   );
 }
 
+// AT History Chart - shows progression/regression every 15 days
+function ATHistoryChart({ history, targetPace }: { history: any[]; targetPace: number }) {
+  if (!history || history.length === 0) return null;
+  
+  // Take last 6 periods (3 months)
+  const last6 = history.slice(-6);
+  const paces = last6.map(h => h.pace_secs);
+  const maxPace = Math.max(...paces);
+  const minPace = Math.min(...paces);
+  const chartH = 60;
+  const MONTHS_SHORT = ['Gen', 'Feb', 'Mar', 'Apr', 'Mag', 'Giu', 'Lug', 'Ago', 'Set', 'Ott', 'Nov', 'Dic'];
+
+  const formatPeriod = (dateStr: string) => {
+    const d = new Date(dateStr + 'T00:00:00');
+    return `${d.getDate()} ${MONTHS_SHORT[d.getMonth()]}`;
+  };
+
+  // Lower pace = better (faster)
+  const range = maxPace - minPace || 60;
+
+  return (
+    <View>
+      {/* Target line label */}
+      <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 8, gap: 6 }}>
+        <View style={{ width: 20, height: 2, backgroundColor: COLORS.orange }} />
+        <Text style={{ fontSize: 10, color: COLORS.orange }}>Target 4:20/km (pre-infortunio)</Text>
+      </View>
+      
+      <View style={{ flexDirection: 'row', gap: 8 }}>
+        {last6.map((h, i) => {
+          // Inverted: lower pace = taller bar (better)
+          const normalizedPace = (h.pace_secs - minPace) / range;
+          const barH = chartH - (normalizedPace * chartH * 0.8);  // Higher bar = faster pace
+          const isImproving = i > 0 && h.pace_secs < last6[i-1].pace_secs;
+          const isRegressing = i > 0 && h.pace_secs > last6[i-1].pace_secs;
+          const isBest = h.pace_secs === minPace;
+          
+          return (
+            <View key={i} style={{ flex: 1, alignItems: 'center' }}>
+              <Text style={{ fontSize: 9, color: COLORS.text, fontWeight: '700', marginBottom: 2 }}>
+                {h.pace}
+              </Text>
+              <View style={{
+                width: '100%', height: chartH, borderRadius: 4,
+                backgroundColor: COLORS.cardBorder, justifyContent: 'flex-end', overflow: 'hidden',
+              }}>
+                <View style={{
+                  width: '100%', height: Math.max(barH, 8), borderRadius: 4,
+                  backgroundColor: isBest ? COLORS.lime : isImproving ? COLORS.green : isRegressing ? COLORS.red : COLORS.blue,
+                }} />
+              </View>
+              <Text style={{ fontSize: 7, color: COLORS.textMuted, marginTop: 2, textAlign: 'center' }}>
+                {formatPeriod(h.period_start)}
+              </Text>
+              {isImproving && <Ionicons name="trending-up" size={10} color={COLORS.lime} />}
+              {isRegressing && <Ionicons name="trending-down" size={10} color={COLORS.red} />}
+            </View>
+          );
+        })}
+      </View>
+      
+      <View style={{ flexDirection: 'row', justifyContent: 'center', gap: 16, marginTop: 8 }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+          <Ionicons name="trending-up" size={12} color={COLORS.lime} />
+          <Text style={{ fontSize: 9, color: COLORS.textMuted }}>Miglioramento</Text>
+        </View>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+          <Ionicons name="trending-down" size={12} color={COLORS.red} />
+          <Text style={{ fontSize: 9, color: COLORS.textMuted }}>Peggioramento</Text>
+        </View>
+      </View>
+    </View>
+  );
+}
+
 function getVo2Color(vo2: number | null) {
   if (!vo2) return COLORS.textMuted;
   if (vo2 >= 50) return COLORS.lime;
@@ -461,6 +546,7 @@ const styles = StyleSheet.create({
   atValue: { fontSize: FONT_SIZES.xl, color: COLORS.text, fontWeight: '900' },
   atLabel: { fontSize: FONT_SIZES.xs, color: COLORS.textMuted },
   atPreInjurySection: { marginTop: SPACING.lg, paddingTop: SPACING.lg, borderTopWidth: 1, borderTopColor: COLORS.cardBorder },
+  atHistorySection: { marginTop: SPACING.lg, paddingTop: SPACING.lg, borderTopWidth: 1, borderTopColor: COLORS.cardBorder },
 
   // HR Zones
   zoneCard: {
