@@ -308,7 +308,7 @@ export default function ProfiloScreen() {
                         {medalLabels[status] || 'DA SBLOCCARE'}
                       </Text>
                       {medal.best_time_str && (
-                        <Text style={styles.medalBestTime}>PB: {medal.best_time_str}</Text>
+                        <Text style={styles.medalBestTime}>PB: {medal.best_time_str} ({medal.best_pace || 'N/A'}/km)</Text>
                       )}
                     </View>
                   </View>

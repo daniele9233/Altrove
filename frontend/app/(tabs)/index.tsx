@@ -153,13 +153,21 @@ export default function Dashboard() {
         </View>
 
         <View style={styles.chartCard}>
+          {/* This week summary */}
+          <View style={styles.thisWeekSummary}>
+            <Text style={styles.thisWeekLabel}>QUESTA SETTIMANA</Text>
+            <Text style={styles.thisWeekValue}>{data?.this_week_km ?? 0} km</Text>
+          </View>
           <View style={styles.chartContainer}>
             {history.slice(-12).map((h: any, idx: number) => {
-              const height = (h.total_km / maxHistoryKm) * 100;
+              const km = h.km ?? h.total_km ?? 0;
+              const maxKm = Math.max(...history.map((x: any) => x.km ?? x.total_km ?? 0), 1);
+              const height = (km / maxKm) * 100;
+              const isCurrent = idx === history.length - 1;
               return (
                 <View key={idx} style={styles.barWrapper}>
                   <Text style={styles.barValue}>{Math.round(h.total_km)}</Text>
-                  <View style={[styles.bar, { height: `${Math.max(height, 3)}%`, backgroundColor: h.total_km > 30 ? COLORS.lime : COLORS.blue }]} />
+                  <View style={[styles.bar, { height: `${Math.max(height, 3)}%`, backgroundColor: isCurrent ? COLORS.lime : km > 30 ? COLORS.green : COLORS.blue }]} />
                 </View>
               );
             })}
@@ -293,6 +301,9 @@ const styles = StyleSheet.create({
     borderRadius: BORDER_RADIUS.lg, padding: SPACING.lg,
     borderWidth: 1, borderColor: COLORS.cardBorder,
   },
+  thisWeekSummary: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: SPACING.md, paddingBottom: SPACING.md, borderBottomWidth: 1, borderBottomColor: COLORS.cardBorder },
+  thisWeekLabel: { fontSize: FONT_SIZES.xs, color: COLORS.textMuted, fontWeight: '600', letterSpacing: 1 },
+  thisWeekValue: { fontSize: FONT_SIZES.xl, color: COLORS.lime, fontWeight: '900' },
   chartContainer: { flexDirection: 'row', alignItems: 'flex-end', height: 120, gap: 4 },
   barWrapper: { flex: 1, alignItems: 'center', justifyContent: 'flex-end', height: '100%' },
   barValue: { fontSize: 8, color: COLORS.textMuted, marginBottom: 2 },

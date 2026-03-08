@@ -199,7 +199,7 @@ export default function StatisticheScreen() {
             );
           })}
           <View style={styles.zoneFooter}>
-            <Text style={styles.zoneFooterText}>Z1: Recupero | Z2: Aerobica | Z3: Tempo | Z4: Soglia | Z5: Max</Text>
+            <Text style={styles.zoneFooterText}>Z1: Recupero | Z2: Resistenza | Z3: Ritmo | Z4: Soglia | Z5: Anaerobico</Text>
           </View>
         </View>
 

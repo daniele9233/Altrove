@@ -427,6 +427,7 @@ def get_profile():
 def get_test_schedule():
     return [
         {"id": make_id(), "scheduled_date": "2026-04-20", "test_type": "6km_time_trial", "description": "Test 6km a sforzo massimale - Verifica ritorno alla forma", "completed": False},
+        {"id": make_id(), "scheduled_date": "2026-05-04", "test_type": "fc_max_test", "description": "Test FC Max - Rivalutazione frequenza cardiaca massima (8x400m con recupero)", "completed": False},
         {"id": make_id(), "scheduled_date": "2026-06-01", "test_type": "10km_time_trial", "description": "Test 10km - Valutazione base aerobica", "completed": False},
         {"id": make_id(), "scheduled_date": "2026-07-20", "test_type": "6km_time_trial", "description": "Test 6km - Verifica sviluppo velocità", "completed": False},
         {"id": make_id(), "scheduled_date": "2026-09-07", "test_type": "15km_time_trial", "description": "Test 15km - Simulazione resistenza specifica", "completed": False},
@@ -465,26 +466,52 @@ async def seed_data():
 @api_router.get("/dashboard")
 async def get_dashboard():
     profile = await db.profile.find_one({}, {"_id": 0})
-    today = date.today().isoformat()
+    today = date.today()
+    today_str = today.isoformat()
 
     current_week = await db.training_plan.find_one(
-        {"week_start": {"$lte": today}, "week_end": {"$gte": today}},
+        {"week_start": {"$lte": today_str}, "week_end": {"$gte": today_str}},
         {"_id": 0}
     )
 
     recent_runs = await db.runs.find({}, {"_id": 0}).sort("date", -1).limit(5).to_list(5)
     total_runs = await db.runs.count_documents({})
 
-    all_runs = await db.runs.find({}, {"_id": 0, "distance_km": 1}).to_list(1000)
+    all_runs = await db.runs.find({}, {"_id": 0, "distance_km": 1, "date": 1}).to_list(2000)
     total_km = sum(r.get("distance_km", 0) for r in all_runs)
 
-    history = await db.weekly_history.find({}, {"_id": 0}).sort("week_start", -1).limit(12).to_list(12)
+    # Calculate REAL weekly km from runs (Monday to Sunday)
+    monday = today - timedelta(days=today.weekday())
+    sunday = monday + timedelta(days=6)
+    monday_str = monday.isoformat()
+    sunday_str = sunday.isoformat()
+    
+    this_week_km = sum(
+        r.get("distance_km", 0) for r in all_runs 
+        if monday_str <= r.get("date", "") <= sunday_str
+    )
+
+    # Build weekly history from actual runs (last 12 weeks)
+    weekly_history = []
+    for i in range(12):
+        week_monday = monday - timedelta(weeks=i)
+        week_sunday = week_monday + timedelta(days=6)
+        week_km = sum(
+            r.get("distance_km", 0) for r in all_runs 
+            if week_monday.isoformat() <= r.get("date", "") <= week_sunday.isoformat()
+        )
+        weekly_history.append({
+            "week_start": week_monday.isoformat(),
+            "week_end": week_sunday.isoformat(),
+            "km": round(week_km, 1)
+        })
+    weekly_history.reverse()
 
     race_date = date(2026, 12, 12)
-    days_to_race = (race_date - date.today()).days
+    days_to_race = (race_date - today).days
 
     next_test = await db.test_schedule.find_one(
-        {"scheduled_date": {"$gte": today}, "completed": False},
+        {"scheduled_date": {"$gte": today_str}, "completed": False},
         {"_id": 0}
     )
 
@@ -494,8 +521,9 @@ async def get_dashboard():
         "recent_runs": recent_runs,
         "total_runs": total_runs,
         "total_km_logged": round(total_km, 1),
+        "this_week_km": round(this_week_km, 1),  # Real km from runs this week
         "days_to_race": max(days_to_race, 0),
-        "weekly_history": list(reversed(history)),
+        "weekly_history": weekly_history,
         "next_test": next_test
     }
 
@@ -800,29 +828,29 @@ async def get_analytics():
         week_runs = sum(1 for r in valid_runs if ws <= r.get("date", "") <= we)
         weekly_volume.append({"week_start": ws, "km": round(week_km, 1), "runs": week_runs})
 
-    # ---- HR ZONE DISTRIBUTION with BPM ranges based on max_hr=180 ----
+    # ---- HR ZONE DISTRIBUTION with CUSTOM BPM ranges (user's actual zones) ----
     user_max_hr = 180  # User's actual max HR
     zone_definitions = [
-        {"zone": "Z1", "name": "Recupero", "pct_min": 50, "pct_max": 60},
-        {"zone": "Z2", "name": "Aerobica", "pct_min": 60, "pct_max": 70},
-        {"zone": "Z3", "name": "Tempo", "pct_min": 70, "pct_max": 80},
-        {"zone": "Z4", "name": "Soglia", "pct_min": 80, "pct_max": 90},
-        {"zone": "Z5", "name": "Max", "pct_min": 90, "pct_max": 100},
+        {"zone": "Z1", "name": "Recupero", "bpm_min": 0, "bpm_max": 117},
+        {"zone": "Z2", "name": "Resistenza", "bpm_min": 118, "bpm_max": 146},
+        {"zone": "Z3", "name": "Ritmo", "bpm_min": 147, "bpm_max": 160},
+        {"zone": "Z4", "name": "Soglia", "bpm_min": 161, "bpm_max": 175},
+        {"zone": "Z5", "name": "Anaerobico", "bpm_min": 176, "bpm_max": 200},
     ]
     
     zone_counts = {"Z1": 0, "Z2": 0, "Z3": 0, "Z4": 0, "Z5": 0}
     total_hr_runs = 0
     for r in valid_runs:
-        hr_pct = r.get("avg_hr_pct") or (round((r["avg_hr"] / user_max_hr) * 100) if r.get("avg_hr") else None)
-        if hr_pct:
+        avg_hr = r.get("avg_hr")
+        if avg_hr:
             total_hr_runs += 1
-            if hr_pct < 60:
+            if avg_hr <= 117:
                 zone_counts["Z1"] += 1
-            elif hr_pct < 70:
+            elif avg_hr <= 146:
                 zone_counts["Z2"] += 1
-            elif hr_pct < 80:
+            elif avg_hr <= 160:
                 zone_counts["Z3"] += 1
-            elif hr_pct < 90:
+            elif avg_hr <= 175:
                 zone_counts["Z4"] += 1
             else:
                 zone_counts["Z5"] += 1
@@ -832,16 +860,13 @@ async def get_analytics():
         z = zdef["zone"]
         count = zone_counts[z]
         pct = round((count / max(total_hr_runs, 1)) * 100)
-        bpm_min = round(user_max_hr * zdef["pct_min"] / 100)
-        bpm_max = round(user_max_hr * zdef["pct_max"] / 100)
         zone_distribution.append({
             "zone": z, 
             "name": zdef["name"],
             "count": count, 
             "percentage": pct,
-            "bpm_min": bpm_min,
-            "bpm_max": bpm_max,
-            "pct_range": f"{zdef['pct_min']}-{zdef['pct_max']}%"
+            "bpm_min": zdef["bpm_min"],
+            "bpm_max": zdef["bpm_max"],
         })
 
     # ---- ANAEROBIC THRESHOLD ESTIMATE (Current and Pre-Injury) ----
@@ -1010,6 +1035,8 @@ async def get_medals():
         medal_info["status"] = achieved_level or "warmup"
         medal_info["best_time_secs"] = round(best_time_secs)
         medal_info["best_time_str"] = f"{int(best_time_secs//60)}:{int(best_time_secs%60):02d}" if best_time_secs < 3600 else f"{int(best_time_secs//3600)}:{int((best_time_secs%3600)//60):02d}:{int(best_time_secs%60):02d}"
+        # Add pace from best run
+        medal_info["best_pace"] = best_run.get("avg_pace") if best_run else None
         
         # Calculate gap to next level
         if next_level and targets.get(next_level):
