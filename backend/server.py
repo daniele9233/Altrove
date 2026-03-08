@@ -1275,11 +1275,12 @@ class StravaCodeRequest(BaseModel):
 @api_router.get("/strava/auth-url")
 async def get_strava_auth_url():
     """Return the Strava OAuth URL for authorizing with activity:read_all scope"""
+    app_url = os.environ.get('APP_URL', 'http://localhost')
     url = (
         f"https://www.strava.com/oauth/authorize"
         f"?client_id={STRAVA_CLIENT_ID}"
         f"&response_type=code"
-        f"&redirect_uri=http://localhost/exchange_token"
+        f"&redirect_uri={app_url}/exchange_token"
         f"&approval_prompt=force"
         f"&scope=read,activity:read_all"
     )
