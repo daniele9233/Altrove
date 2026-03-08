@@ -720,13 +720,26 @@ async def get_analytics():
         parts = p.split(":")
         return int(parts[0]) * 60 + int(parts[1]) if len(parts) == 2 else 999
 
-    # ---- VO2MAX ESTIMATION (Jack Daniels) ----
-    # Find best efforts at different distances
+    # ---- VO2MAX ESTIMATION (Jack Daniels) - POST-INJURY ONLY (2026+) ----
+    # Find best efforts at different distances FROM 2026 ONLY
+    post_injury_runs = [r for r in valid_runs if r.get("date", "").startswith("2026")]
+    
+    best_efforts_post_injury = {}
+    for r in post_injury_runs:
+        dist = r.get("distance_km", 0)
+        pace_secs = pace_str_to_secs(r.get("avg_pace", "9:99"))
+
+        for target_dist in [4, 5, 6, 10, 15, 21.1]:
+            if abs(dist - target_dist) < 0.5:
+                key = f"{target_dist}km"
+                if key not in best_efforts_post_injury or pace_secs < pace_str_to_secs(best_efforts_post_injury[key]["avg_pace"]):
+                    best_efforts_post_injury[key] = r
+    
+    # Also keep all-time best efforts for reference
     best_efforts = {}
     for r in valid_runs:
         dist = r.get("distance_km", 0)
         pace_secs = pace_str_to_secs(r.get("avg_pace", "9:99"))
-        time_secs = r.get("duration_minutes", 0) * 60
 
         for target_dist in [4, 5, 6, 10, 15, 21.1]:
             if abs(dist - target_dist) < 0.5:
@@ -734,12 +747,12 @@ async def get_analytics():
                 if key not in best_efforts or pace_secs < pace_str_to_secs(best_efforts[key]["avg_pace"]):
                     best_efforts[key] = r
 
-    # VO2max from best 10km or best effort using Daniels formula
+    # VO2max from best POST-INJURY effort using Daniels formula
     vo2max = None
     best_race = None
     for key in ["10km", "6km", "5km", "15km", "4km"]:
-        if key in best_efforts:
-            best_race = best_efforts[key]
+        if key in best_efforts_post_injury:
+            best_race = best_efforts_post_injury[key]
             break
 
     if best_race:
@@ -765,12 +778,14 @@ async def get_analytics():
     target_pct_vo2 = 0.8 + 0.1894393 * math.exp(-0.012778 * target_time_min) + 0.2989558 * math.exp(-0.1932605 * target_time_min)
     vo2max_target = round(target_vo2 / target_pct_vo2, 1) if target_pct_vo2 > 0 else None
 
-    # ---- RACE PREDICTIONS (Riegel formula) ----
+    # ---- RACE PREDICTIONS (Riegel formula) - POST-INJURY ONLY ----
     race_predictions = {}
-    ref_run = best_efforts.get("10km") or best_efforts.get("6km") or best_efforts.get("5km") or best_efforts.get("4km")
+    ref_run = best_efforts_post_injury.get("10km") or best_efforts_post_injury.get("6km") or best_efforts_post_injury.get("5km") or best_efforts_post_injury.get("4km")
     if ref_run:
         ref_dist = ref_run["distance_km"]
         ref_time_min = ref_run["duration_minutes"]
+        ref_pace = ref_run.get("avg_pace", "N/A")
+        ref_date = ref_run.get("date", "N/A")
         for target_name, target_km in [("5km", 5), ("10km", 10), ("21.1km", 21.1)]:
             pred_time = ref_time_min * (target_km / ref_dist) ** 1.06
             pred_pace_s = (pred_time * 60) / target_km
@@ -779,6 +794,7 @@ async def get_analytics():
                 "predicted_time_min": round(pred_time, 1),
                 "predicted_time_str": f"{int(pred_time // 60)}:{int(pred_time % 60):02d}:{int((pred_time % 1) * 60):02d}",
                 "predicted_pace": pred_pace,
+                "based_on": f"{ref_dist}km del {ref_date} ({ref_pace}/km)"
             }
 
     # Target half marathon: 4:30/km = 94:55
@@ -893,42 +909,48 @@ async def get_analytics():
     current_at = {"hr": at_hr, "pace": at_pace} if at_hr else None
 
     # ---- ANAEROBIC THRESHOLD HISTORY (every 15 days) ----
-    # Calculate AT for each 15-day period to track progress/regression
+    # Track: for runs at similar HR (~150bpm), what pace can you maintain?
+    # This shows fitness progression: same HR effort -> faster pace = improvement
     at_history = []
-    # Start from pre-injury date
     history_start = date(2025, 11, 1)
     period_days = 15
     current_period_start = history_start
+    target_hr_range = (140, 160)  # Zone 3-4 HR range for comparison
     
     while current_period_start <= today:
         period_end = current_period_start + timedelta(days=period_days - 1)
         period_start_str = current_period_start.isoformat()
         period_end_str = period_end.isoformat()
         
-        # Get threshold runs in this period (runs > 20 min with pace < 6:00/km)
+        # Get runs in this period with HR in target range (140-160 bpm)
         period_runs = [
             r for r in valid_runs 
             if r.get("avg_hr") 
+            and target_hr_range[0] <= r.get("avg_hr", 0) <= target_hr_range[1]
             and r.get("duration_minutes", 0) > 15 
-            and pace_str_to_secs(r.get("avg_pace", "9:99")) < 400  # < 6:40/km
             and period_start_str <= r.get("date", "") <= period_end_str
         ]
         
         if period_runs:
-            # Calculate AT from best efforts in this period
-            sorted_runs = sorted(period_runs, key=lambda r: pace_str_to_secs(r.get("avg_pace", "9:99")))
-            best_runs = sorted_runs[:3]  # Top 3 fastest
-            period_at_hr = round(sum(r["avg_hr"] for r in best_runs) / len(best_runs))
-            period_avg_pace_s = sum(pace_str_to_secs(r["avg_pace"]) for r in best_runs) / len(best_runs)
-            period_at_pace = f"{int(period_avg_pace_s // 60)}:{int(period_avg_pace_s % 60):02d}"
+            # Average pace at similar HR effort
+            avg_hr = round(sum(r["avg_hr"] for r in period_runs) / len(period_runs))
+            pace_secs_list = [pace_str_to_secs(r["avg_pace"]) for r in period_runs]
+            avg_pace_secs = sum(pace_secs_list) / len(pace_secs_list)
+            avg_pace = f"{int(avg_pace_secs // 60)}:{int(avg_pace_secs % 60):02d}"
+            
+            # Find best pace in period at this HR
+            best_pace_secs = min(pace_secs_list)
+            best_pace = f"{int(best_pace_secs // 60)}:{int(best_pace_secs % 60):02d}"
             
             at_history.append({
                 "period_start": period_start_str,
                 "period_end": period_end_str,
-                "hr": period_at_hr,
-                "pace": period_at_pace,
-                "pace_secs": round(period_avg_pace_s),
-                "runs_count": len(period_runs)
+                "avg_hr": avg_hr,
+                "avg_pace": avg_pace,
+                "best_pace": best_pace,
+                "pace_secs": round(avg_pace_secs),
+                "runs_count": len(period_runs),
+                "label": f"{current_period_start.strftime('%d %b')}"
             })
         
         current_period_start += timedelta(days=period_days)

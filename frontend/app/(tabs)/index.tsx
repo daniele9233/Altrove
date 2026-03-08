@@ -163,10 +163,10 @@ export default function Dashboard() {
               const km = h.km ?? h.total_km ?? 0;
               const maxKm = Math.max(...history.map((x: any) => x.km ?? x.total_km ?? 0), 1);
               const height = (km / maxKm) * 100;
-              const isCurrent = idx === history.length - 1;
+              const isCurrent = idx === history.slice(-12).length - 1 && idx === 11;
               return (
                 <View key={idx} style={styles.barWrapper}>
-                  <Text style={styles.barValue}>{Math.round(h.total_km)}</Text>
+                  <Text style={styles.barValue}>{km > 0 ? Math.round(km) : ''}</Text>
                   <View style={[styles.bar, { height: `${Math.max(height, 3)}%`, backgroundColor: isCurrent ? COLORS.lime : km > 30 ? COLORS.green : COLORS.blue }]} />
                 </View>
               );
