@@ -1,7 +1,7 @@
 import React, { useState, useCallback } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
-  ActivityIndicator, RefreshControl, Modal,
+  ActivityIndicator, RefreshControl, Modal, Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -18,10 +18,13 @@ export default function PianoScreen() {
   const [viewMode, setViewMode] = useState<'list' | 'calendar'>('list');
   const [selectedDay, setSelectedDay] = useState<any>(null);
   const [dayModalVisible, setDayModalVisible] = useState(false);
+  const [adaptationStatus, setAdaptationStatus] = useState<any>(null);
+  const [adapting, setAdapting] = useState(false);
 
   useFocusEffect(
     useCallback(() => {
       loadPlan();
+      loadAdaptationStatus();
     }, [])
   );
 
@@ -38,6 +41,41 @@ export default function PianoScreen() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const loadAdaptationStatus = async () => {
+    try {
+      const status = await api.getAdaptationStatus();
+      setAdaptationStatus(status);
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const handleAdaptPlan = async () => {
+    Alert.alert(
+      'Adatta Piano',
+      `Vuoi ${adaptationStatus?.suggestion_label?.toLowerCase() || 'adattare il piano'}? Questa azione modificherà le settimane future.`,
+      [
+        { text: 'Annulla', style: 'cancel' },
+        {
+          text: 'Conferma',
+          onPress: async () => {
+            setAdapting(true);
+            try {
+              const result = await api.adaptTrainingPlan();
+              Alert.alert('Piano Adattato', result.message);
+              loadPlan();
+              loadAdaptationStatus();
+            } catch (e) {
+              Alert.alert('Errore', 'Impossibile adattare il piano');
+            } finally {
+              setAdapting(false);
+            }
+          },
+        },
+      ]
+    );
   };
 
   const toggleComplete = async (sessionIdx: number) => {
@@ -132,6 +170,35 @@ export default function PianoScreen() {
           </TouchableOpacity>
         </View>
       </View>
+
+      {/* Auto-Adaptive Plan Card */}
+      {adaptationStatus?.can_adapt && adaptationStatus?.suggestion !== 'standard' && (
+        <TouchableOpacity style={styles.adaptCard} onPress={handleAdaptPlan} disabled={adapting}>
+          <View style={styles.adaptIconContainer}>
+            <Ionicons 
+              name={adaptationStatus.suggestion === 'aggressive' ? 'trending-up' : adaptationStatus.suggestion === 'reduce' ? 'trending-down' : 'flash'} 
+              size={24} 
+              color={adaptationStatus.suggestion === 'reduce' ? COLORS.orange : COLORS.lime} 
+            />
+          </View>
+          <View style={styles.adaptContent}>
+            <Text style={styles.adaptTitle}>PIANO AUTO-ADATTIVO</Text>
+            <Text style={styles.adaptLabel}>
+              {adaptationStatus.improvement_pct > 0 ? 'Miglioramento' : 'Rallentamento'}: {Math.abs(adaptationStatus.improvement_pct).toFixed(1)}%
+            </Text>
+            <Text style={styles.adaptPace}>Passo medio: {adaptationStatus.avg_recent_pace}/km</Text>
+          </View>
+          <View style={[styles.adaptBadge, adaptationStatus.suggestion === 'reduce' && { backgroundColor: 'rgba(249, 115, 22, 0.2)' }]}>
+            {adapting ? (
+              <ActivityIndicator size="small" color={COLORS.lime} />
+            ) : (
+              <Text style={[styles.adaptBadgeText, adaptationStatus.suggestion === 'reduce' && { color: COLORS.orange }]}>
+                {adaptationStatus.suggestion_label}
+              </Text>
+            )}
+          </View>
+        </TouchableOpacity>
+      )}
 
       {viewMode === 'calendar' ? (
         // CALENDAR VIEW
@@ -374,6 +441,27 @@ const styles = StyleSheet.create({
   pageTitle: { fontSize: FONT_SIZES.sm, color: COLORS.lime, fontWeight: '700', letterSpacing: 2 },
   pageSubtitle: { fontSize: FONT_SIZES.xxl, color: COLORS.text, fontWeight: '800' },
   viewToggle: { padding: SPACING.sm, backgroundColor: COLORS.card, borderRadius: BORDER_RADIUS.md },
+  
+  // Adaptive Plan Card
+  adaptCard: {
+    flexDirection: 'row', alignItems: 'center', gap: SPACING.md,
+    marginHorizontal: SPACING.xl, marginTop: SPACING.lg,
+    backgroundColor: 'rgba(190, 242, 100, 0.1)', borderRadius: BORDER_RADIUS.lg,
+    padding: SPACING.lg, borderWidth: 1, borderColor: 'rgba(190, 242, 100, 0.3)',
+  },
+  adaptIconContainer: {
+    width: 44, height: 44, borderRadius: 22,
+    backgroundColor: 'rgba(190, 242, 100, 0.2)', alignItems: 'center', justifyContent: 'center',
+  },
+  adaptContent: { flex: 1 },
+  adaptTitle: { fontSize: FONT_SIZES.xs, color: COLORS.lime, fontWeight: '700', letterSpacing: 1 },
+  adaptLabel: { fontSize: FONT_SIZES.md, color: COLORS.text, fontWeight: '700', marginTop: 2 },
+  adaptPace: { fontSize: FONT_SIZES.xs, color: COLORS.textMuted },
+  adaptBadge: {
+    backgroundColor: 'rgba(190, 242, 100, 0.2)', borderRadius: BORDER_RADIUS.md,
+    paddingHorizontal: SPACING.sm, paddingVertical: SPACING.xs,
+  },
+  adaptBadgeText: { fontSize: FONT_SIZES.xs, color: COLORS.lime, fontWeight: '700' },
   
   // Calendar styles
   calendarContainer: { marginHorizontal: SPACING.xl, marginTop: SPACING.lg },

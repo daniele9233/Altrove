@@ -984,7 +984,176 @@ async def get_analytics():
         "totals": {"total_km": total_km, "total_time_hours": round(total_time / 60, 1), "total_runs": total_runs, "recent_30d_km": recent_km},
     }
 
-@api_router.get("/profile")
+@api_router.post("/training-plan/adapt")
+async def adapt_training_plan():
+    """Analyze progress and adapt the training plan to be more aggressive if improving"""
+    runs = await db.runs.find({}, {"_id": 0}).to_list(2000)
+    today = date.today()
+    
+    # Get runs from last 4 weeks
+    four_weeks_ago = (today - timedelta(days=28)).isoformat()
+    recent_runs = [r for r in runs if r.get("date", "") >= four_weeks_ago and r.get("avg_pace")]
+    
+    if len(recent_runs) < 5:
+        return {"adapted": False, "message": "Non abbastanza corse recenti per valutare i progressi (minimo 5)", "recommendation": None}
+    
+    # Calculate average pace from recent runs
+    def pace_to_secs(pace_str):
+        if not pace_str or ':' not in pace_str:
+            return 999
+        parts = pace_str.split(':')
+        return int(parts[0]) * 60 + int(parts[1])
+    
+    recent_paces = [pace_to_secs(r["avg_pace"]) for r in recent_runs]
+    avg_recent_pace = sum(recent_paces) / len(recent_paces)
+    
+    # Get runs from 4-8 weeks ago for comparison
+    eight_weeks_ago = (today - timedelta(days=56)).isoformat()
+    older_runs = [r for r in runs if eight_weeks_ago <= r.get("date", "") < four_weeks_ago and r.get("avg_pace")]
+    
+    improvement_detected = False
+    improvement_pct = 0
+    recommendation = "standard"
+    
+    if len(older_runs) >= 3:
+        older_paces = [pace_to_secs(r["avg_pace"]) for r in older_runs]
+        avg_older_pace = sum(older_paces) / len(older_paces)
+        
+        # Calculate improvement (lower pace = better)
+        if avg_older_pace > 0:
+            improvement_pct = round(((avg_older_pace - avg_recent_pace) / avg_older_pace) * 100, 1)
+            improvement_detected = improvement_pct > 2  # More than 2% faster
+    
+    # Analyze training consistency
+    recent_volume = sum(r.get("distance_km", 0) for r in recent_runs)
+    weeks_count = max(len(set(r.get("date", "")[:10] for r in recent_runs)) / 7, 1)
+    weekly_avg_km = recent_volume / max(weeks_count, 1)
+    
+    # Determine recommendation
+    if improvement_detected and improvement_pct > 5:
+        recommendation = "aggressive"
+        adjustment_factor = 1.15  # 15% more volume
+        message = f"Ottimi progressi! Passo migliorato del {improvement_pct}%. Piano reso più aggressivo."
+    elif improvement_detected and improvement_pct > 2:
+        recommendation = "moderate_increase"
+        adjustment_factor = 1.08  # 8% more volume
+        message = f"Buoni progressi! Passo migliorato del {improvement_pct}%. Piano leggermente intensificato."
+    elif improvement_pct < -3:
+        recommendation = "reduce"
+        adjustment_factor = 0.90  # 10% less volume
+        message = f"Attenzione: passo rallentato del {abs(improvement_pct)}%. Piano alleggerito per favorire il recupero."
+    else:
+        recommendation = "standard"
+        adjustment_factor = 1.0
+        message = "Progressi nella norma. Piano confermato senza modifiche."
+    
+    # Apply adaptation to future weeks
+    if recommendation != "standard":
+        current_plan = await db.training_plan.find({"week_start": {"$gte": today.isoformat()}}, {"_id": 0}).to_list(100)
+        adapted_weeks = 0
+        
+        for week in current_plan:
+            new_target_km = round(week.get("target_km", 40) * adjustment_factor, 1)
+            # Cap maximum weekly volume at 65km
+            new_target_km = min(new_target_km, 65)
+            
+            # Update sessions
+            new_sessions = []
+            for session in week.get("sessions", []):
+                new_session = session.copy()
+                if session.get("target_distance_km"):
+                    new_dist = round(session["target_distance_km"] * adjustment_factor, 1)
+                    new_session["target_distance_km"] = min(new_dist, 24)  # Max 24km for long runs
+                
+                # Adjust pace targets if improving significantly
+                if improvement_detected and improvement_pct > 5 and session.get("target_pace"):
+                    current_pace_secs = pace_to_secs(session["target_pace"])
+                    new_pace_secs = current_pace_secs * 0.97  # 3% faster target
+                    new_pace = f"{int(new_pace_secs // 60)}:{int(new_pace_secs % 60):02d}"
+                    new_session["target_pace"] = new_pace
+                
+                new_sessions.append(new_session)
+            
+            await db.training_plan.update_one(
+                {"id": week["id"]},
+                {"$set": {"target_km": new_target_km, "sessions": new_sessions, "adapted": True}}
+            )
+            adapted_weeks += 1
+    
+    return {
+        "adapted": recommendation != "standard",
+        "recommendation": recommendation,
+        "adjustment_factor": adjustment_factor if recommendation != "standard" else 1.0,
+        "improvement_pct": improvement_pct,
+        "recent_avg_pace_secs": round(avg_recent_pace),
+        "recent_volume_km": round(recent_volume, 1),
+        "weekly_avg_km": round(weekly_avg_km, 1),
+        "message": message,
+        "adapted_weeks": adapted_weeks if recommendation != "standard" else 0
+    }
+
+@api_router.get("/training-plan/adaptation-status")
+async def get_adaptation_status():
+    """Check current adaptation status and provide recommendation"""
+    runs = await db.runs.find({}, {"_id": 0}).to_list(2000)
+    today = date.today()
+    
+    # Calculate metrics for UI display
+    four_weeks_ago = (today - timedelta(days=28)).isoformat()
+    recent_runs = [r for r in runs if r.get("date", "") >= four_weeks_ago and r.get("avg_pace")]
+    
+    def pace_to_secs(pace_str):
+        if not pace_str or ':' not in pace_str:
+            return 999
+        parts = pace_str.split(':')
+        return int(parts[0]) * 60 + int(parts[1])
+    
+    if len(recent_runs) < 3:
+        return {
+            "can_adapt": False,
+            "reason": "Servono almeno 3 corse nelle ultime 4 settimane",
+            "recent_runs_count": len(recent_runs),
+            "suggestion": None
+        }
+    
+    recent_paces = [pace_to_secs(r["avg_pace"]) for r in recent_runs]
+    avg_recent_pace = sum(recent_paces) / len(recent_paces)
+    avg_pace_str = f"{int(avg_recent_pace // 60)}:{int(avg_recent_pace % 60):02d}"
+    
+    # Compare with older runs
+    eight_weeks_ago = (today - timedelta(days=56)).isoformat()
+    older_runs = [r for r in runs if eight_weeks_ago <= r.get("date", "") < four_weeks_ago and r.get("avg_pace")]
+    
+    improvement_pct = 0
+    suggestion = "standard"
+    
+    if len(older_runs) >= 3:
+        older_paces = [pace_to_secs(r["avg_pace"]) for r in older_runs]
+        avg_older_pace = sum(older_paces) / len(older_paces)
+        
+        if avg_older_pace > 0:
+            improvement_pct = round(((avg_older_pace - avg_recent_pace) / avg_older_pace) * 100, 1)
+            
+            if improvement_pct > 5:
+                suggestion = "aggressive"
+            elif improvement_pct > 2:
+                suggestion = "moderate_increase"
+            elif improvement_pct < -3:
+                suggestion = "reduce"
+    
+    return {
+        "can_adapt": True,
+        "recent_runs_count": len(recent_runs),
+        "avg_recent_pace": avg_pace_str,
+        "improvement_pct": improvement_pct,
+        "suggestion": suggestion,
+        "suggestion_label": {
+            "aggressive": "Aumenta intensità (+15%)",
+            "moderate_increase": "Aumenta leggermente (+8%)",
+            "reduce": "Riduci carico (-10%)",
+            "standard": "Mantieni piano attuale"
+        }.get(suggestion, "Mantieni piano attuale")
+    }
 async def get_profile_data():
     profile = await db.profile.find_one({}, {"_id": 0})
     return profile or {}

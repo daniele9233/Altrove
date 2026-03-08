@@ -5,9 +5,11 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
+import { useRouter } from 'expo-router';
 import { COLORS, SPACING, FONT_SIZES, BORDER_RADIUS } from '../src/theme';
 
 export default function CalcolatoreScreen() {
+  const router = useRouter();
   // PB Input
   const [pbDistance, setPbDistance] = useState('6');
   const [pbMinutes, setPbMinutes] = useState('29');
@@ -137,9 +139,15 @@ export default function CalcolatoreScreen() {
         style={{ flex: 1 }}
       >
         <ScrollView showsVerticalScrollIndicator={false}>
+          {/* Header with Back Button */}
           <View style={styles.header}>
-            <Text style={styles.pageTitle}>CALCOLATORE</Text>
-            <Text style={styles.pageSubtitle}>PACE & RACE PREDICTOR</Text>
+            <TouchableOpacity style={styles.backBtn} onPress={() => router.back()}>
+              <Ionicons name="arrow-back" size={24} color={COLORS.text} />
+            </TouchableOpacity>
+            <View>
+              <Text style={styles.pageTitle}>CALCOLATORE</Text>
+              <Text style={styles.pageSubtitle}>PACE & RACE PREDICTOR</Text>
+            </View>
           </View>
 
           {/* Race Predictor Section */}
@@ -371,7 +379,8 @@ export default function CalcolatoreScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: COLORS.bg },
-  header: { paddingHorizontal: SPACING.xl, paddingTop: SPACING.lg },
+  header: { flexDirection: 'row', alignItems: 'center', gap: SPACING.md, paddingHorizontal: SPACING.xl, paddingTop: SPACING.lg },
+  backBtn: { padding: SPACING.sm },
   pageTitle: { fontSize: FONT_SIZES.sm, color: COLORS.lime, fontWeight: '700', letterSpacing: 2 },
   pageSubtitle: { fontSize: FONT_SIZES.xxl, color: COLORS.text, fontWeight: '800' },
 
