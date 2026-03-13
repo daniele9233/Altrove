@@ -1703,7 +1703,7 @@ class StravaCodeRequest(BaseModel):
 @api_router.get("/strava/auth-url")
 async def get_strava_auth_url():
     """Return the Strava OAuth URL for authorizing with activity:read_all scope"""
-    redirect_uri = "corralejo://strava-callback"
+    redirect_uri = "https://corralejo-backend.onrender.com/api/strava/callback"
     url = (
         f"https://www.strava.com/oauth/authorize"
         f"?client_id={STRAVA_CLIENT_ID}"
@@ -1713,6 +1713,48 @@ async def get_strava_auth_url():
         f"&scope=read,activity:read_all"
     )
     return {"url": url, "redirect_uri": redirect_uri}
+
+@api_router.get("/strava/callback")
+async def strava_callback(code: str = None, error: str = None, scope: str = None):
+    """Strava OAuth callback - exchanges code and redirects to app"""
+    from starlette.responses import RedirectResponse
+    if error:
+        return RedirectResponse(url=f"corralejo://strava-callback?error={error}")
+    if code:
+        # Exchange the code server-side
+        try:
+            async with httpx.AsyncClient() as http:
+                resp = await http.post(
+                    "https://www.strava.com/oauth/token",
+                    data={
+                        "client_id": STRAVA_CLIENT_ID,
+                        "client_secret": STRAVA_CLIENT_SECRET,
+                        "code": code,
+                        "grant_type": "authorization_code",
+                    }
+                )
+                if resp.status_code == 200:
+                    data = resp.json()
+                    new_tokens = {
+                        "access_token": data["access_token"],
+                        "refresh_token": data["refresh_token"],
+                        "expires_at": data["expires_at"],
+                        "token_type": data.get("token_type", "Bearer"),
+                        "scope": "activity:read_all",
+                    }
+                    await db.strava_tokens.delete_many({})
+                    await db.strava_tokens.insert_one({**new_tokens})
+                    athlete = data.get("athlete", {})
+                    name = f"{athlete.get('firstname', '')} {athlete.get('lastname', '')}".strip()
+                    logger.info(f"Strava OAuth callback success for {name}")
+                    return RedirectResponse(url=f"corralejo://strava-callback?success=true&athlete={name}")
+                else:
+                    logger.error(f"Strava callback exchange failed: {resp.text}")
+                    return RedirectResponse(url=f"corralejo://strava-callback?error=exchange_failed")
+        except Exception as e:
+            logger.error(f"Strava callback error: {e}")
+            return RedirectResponse(url=f"corralejo://strava-callback?error=server_error")
+    return RedirectResponse(url="corralejo://strava-callback?error=no_code")
 
 @api_router.post("/strava/exchange-code")
 async def exchange_strava_code(req: StravaCodeRequest):

@@ -7,19 +7,32 @@ import { COLORS, SPACING, FONT_SIZES, BORDER_RADIUS } from '../src/theme';
 import { api } from '../src/api';
 
 export default function StravaCallbackScreen() {
-  const { code } = useLocalSearchParams<{ code: string }>();
+  const params = useLocalSearchParams<{ code?: string; success?: string; error?: string; athlete?: string }>();
   const router = useRouter();
   const [status, setStatus] = useState<'loading' | 'success' | 'error'>('loading');
   const [message, setMessage] = useState('');
 
   useEffect(() => {
-    if (!code) {
-      setStatus('error');
-      setMessage('Nessun codice di autorizzazione ricevuto.');
+    // New flow: server already exchanged the code and redirected here with success/error
+    if (params.success === 'true') {
+      setStatus('success');
+      setMessage(params.athlete ? `Connesso come ${params.athlete}!` : 'Autorizzazione completata!');
+      setTimeout(() => router.replace('/(tabs)/profilo'), 2000);
       return;
     }
-    exchangeCode(code);
-  }, [code]);
+    if (params.error) {
+      setStatus('error');
+      setMessage(`Errore: ${params.error}. Riprova.`);
+      return;
+    }
+    // Legacy flow: code was passed directly (fallback)
+    if (params.code) {
+      exchangeCode(params.code);
+      return;
+    }
+    setStatus('error');
+    setMessage('Nessun codice di autorizzazione ricevuto.');
+  }, [params.code, params.success, params.error]);
 
   const exchangeCode = async (authCode: string) => {
     try {
