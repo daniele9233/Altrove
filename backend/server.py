@@ -1324,6 +1324,53 @@ async def get_analytics():
     recent_runs = [r for r in valid_runs if r.get("date", "") >= last_30_days[-1]]
     recent_km = round(sum(r.get("distance_km", 0) for r in recent_runs), 1)
 
+    # ---- TRAINING PACES from current VDOT ----
+    current_training_paces = vdot_training_paces(vo2max) if vo2max else None
+
+    # ---- PACE PROGRESSION BY WEEK (actual run paces grouped by week) ----
+    # Shows how easy/fast runs evolve over time
+    weekly_pace_data = {}
+    for r in valid_runs:
+        if not r.get("date") or not r.get("avg_pace"):
+            continue
+        # Get ISO week
+        try:
+            from datetime import datetime as dt
+            rd = dt.strptime(r["date"], "%Y-%m-%d").date()
+            week_start = (rd - timedelta(days=rd.weekday())).isoformat()
+        except Exception:
+            continue
+        pace_s = pace_str_to_secs(r["avg_pace"])
+        dist = r.get("distance_km", 0)
+        hr = r.get("avg_hr", 0)
+        if week_start not in weekly_pace_data:
+            weekly_pace_data[week_start] = {"easy": [], "tempo": [], "fast": []}
+        # Classify by HR zone or pace
+        if hr and hr < 150:
+            weekly_pace_data[week_start]["easy"].append(pace_s)
+        elif hr and hr < 168:
+            weekly_pace_data[week_start]["tempo"].append(pace_s)
+        elif hr and hr >= 168:
+            weekly_pace_data[week_start]["fast"].append(pace_s)
+        elif pace_s > 330:  # slower than 5:30 = easy
+            weekly_pace_data[week_start]["easy"].append(pace_s)
+        elif pace_s > 280:  # 4:40-5:30 = tempo
+            weekly_pace_data[week_start]["tempo"].append(pace_s)
+        else:
+            weekly_pace_data[week_start]["fast"].append(pace_s)
+
+    pace_progression = []
+    for week in sorted(weekly_pace_data.keys()):
+        d = weekly_pace_data[week]
+        entry = {"week": week}
+        for zone in ["easy", "tempo", "fast"]:
+            if d[zone]:
+                avg = sum(d[zone]) / len(d[zone])
+                entry[f"{zone}_pace_secs"] = round(avg)
+                entry[f"{zone}_pace"] = f"{int(avg // 60)}:{int(avg % 60):02d}"
+        if len(entry) > 1:  # has at least one zone
+            pace_progression.append(entry)
+
     return {
         "vo2max": vo2max,
         "vo2max_target": vo2max_target,
@@ -1338,10 +1385,13 @@ async def get_analytics():
         "anaerobic_threshold": {
             "current": current_at,
             "pre_injury": pre_injury_at,
-            "history": at_history  # Every 15 days history for progress tracking
+            "history": at_history
         },
         "best_efforts": {k: {"distance": v["distance_km"], "pace": v["avg_pace"], "time": v["duration_minutes"], "date": v["date"], "avg_hr": v.get("avg_hr"), "max_hr": v.get("max_hr")} for k, v in best_efforts.items()},
         "totals": {"total_km": total_km, "total_time_hours": round(total_time / 60, 1), "total_runs": total_runs, "recent_30d_km": recent_km},
+        "current_training_paces": current_training_paces,
+        "pace_progression": pace_progression,
+        "pace_trend": pace_trend,
     }
 
 @api_router.post("/training-plan/adapt")

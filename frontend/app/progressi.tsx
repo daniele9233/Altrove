@@ -27,6 +27,146 @@ interface RacePrediction {
   based_on: string;
 }
 
+// ---- Pace Line Chart Component ----
+const LINE_CHART_HEIGHT = 180;
+const LINE_CHART_PADDING = 40;
+
+function PaceLineChart({ data }: { data: any[] }) {
+  if (!data || data.length < 2) return null;
+
+  // Get all pace values to determine scale
+  const allSecs: number[] = [];
+  for (const d of data) {
+    if (d.easy_pace_secs) allSecs.push(d.easy_pace_secs);
+    if (d.tempo_pace_secs) allSecs.push(d.tempo_pace_secs);
+    if (d.fast_pace_secs) allSecs.push(d.fast_pace_secs);
+  }
+  if (allSecs.length === 0) return null;
+
+  const maxSecs = Math.max(...allSecs) + 15;
+  const minSecs = Math.min(...allSecs) - 15;
+  const range = maxSecs - minSecs || 60;
+
+  const chartW = SCREEN_WIDTH - 80 - LINE_CHART_PADDING;
+  const stepX = chartW / Math.max(data.length - 1, 1);
+
+  const toY = (secs: number) => {
+    // Higher secs = slower = higher Y (top is faster)
+    return ((secs - minSecs) / range) * LINE_CHART_HEIGHT;
+  };
+
+  const formatPace = (secs: number) => {
+    const m = Math.floor(secs / 60);
+    const s = Math.round(secs % 60);
+    return `${m}:${s.toString().padStart(2, '0')}`;
+  };
+
+  const formatWeek = (w: string) => {
+    try {
+      const parts = w.split('-');
+      return `${parts[2]}/${parts[1]}`;
+    } catch { return w; }
+  };
+
+  // Build SVG-like paths using Views
+  const zones = [
+    { key: 'easy_pace_secs', color: '#4ade80' },
+    { key: 'tempo_pace_secs', color: '#facc15' },
+    { key: 'fast_pace_secs', color: '#f87171' },
+  ];
+
+  // Only show last 12 weeks max
+  const displayData = data.slice(-12);
+  const displayStepX = chartW / Math.max(displayData.length - 1, 1);
+
+  return (
+    <View style={{ height: LINE_CHART_HEIGHT + 40, marginTop: SPACING.sm }}>
+      {/* Y-axis labels */}
+      <View style={{ position: 'absolute', left: 0, top: 0, height: LINE_CHART_HEIGHT, justifyContent: 'space-between' }}>
+        <Text style={{ fontSize: 8, color: COLORS.textMuted }}>{formatPace(minSecs)}</Text>
+        <Text style={{ fontSize: 8, color: COLORS.textMuted }}>{formatPace(Math.round((minSecs + maxSecs) / 2))}</Text>
+        <Text style={{ fontSize: 8, color: COLORS.textMuted }}>{formatPace(maxSecs)}</Text>
+      </View>
+
+      {/* Chart area */}
+      <View style={{ marginLeft: LINE_CHART_PADDING, height: LINE_CHART_HEIGHT, position: 'relative' }}>
+        {/* Grid lines */}
+        {[0, 0.5, 1].map((pct, i) => (
+          <View key={i} style={{
+            position: 'absolute', top: pct * LINE_CHART_HEIGHT,
+            left: 0, right: 0, height: 1,
+            backgroundColor: COLORS.cardBorder, opacity: 0.5,
+          }} />
+        ))}
+
+        {/* Data points and lines */}
+        {zones.map(zone => {
+          const points = displayData
+            .map((d, i) => d[zone.key] ? { x: i * displayStepX, y: toY(d[zone.key]), secs: d[zone.key] } : null)
+            .filter(Boolean) as { x: number; y: number; secs: number }[];
+
+          if (points.length < 2) return null;
+
+          return (
+            <React.Fragment key={zone.key}>
+              {/* Lines between points */}
+              {points.map((p, i) => {
+                if (i === 0) return null;
+                const prev = points[i - 1];
+                const dx = p.x - prev.x;
+                const dy = p.y - prev.y;
+                const length = Math.sqrt(dx * dx + dy * dy);
+                const angle = Math.atan2(dy, dx) * (180 / Math.PI);
+                return (
+                  <View key={`${zone.key}-line-${i}`} style={{
+                    position: 'absolute',
+                    left: prev.x,
+                    top: prev.y,
+                    width: length,
+                    height: 2,
+                    backgroundColor: zone.color,
+                    transform: [{ rotate: `${angle}deg` }],
+                    transformOrigin: 'left center',
+                    opacity: 0.8,
+                  }} />
+                );
+              })}
+              {/* Dots */}
+              {points.map((p, i) => (
+                <View key={`${zone.key}-dot-${i}`} style={{
+                  position: 'absolute',
+                  left: p.x - 3,
+                  top: p.y - 3,
+                  width: 6,
+                  height: 6,
+                  borderRadius: 3,
+                  backgroundColor: zone.color,
+                }} />
+              ))}
+            </React.Fragment>
+          );
+        })}
+      </View>
+
+      {/* X-axis labels */}
+      <View style={{ marginLeft: LINE_CHART_PADDING, flexDirection: 'row', marginTop: 4 }}>
+        {displayData.map((d, i) => (
+          <Text key={i} style={{
+            position: 'absolute',
+            left: i * displayStepX - 14,
+            fontSize: 7,
+            color: COLORS.textMuted,
+            width: 30,
+            textAlign: 'center',
+          }}>
+            {i % Math.max(1, Math.floor(displayData.length / 5)) === 0 ? formatWeek(d.week) : ''}
+          </Text>
+        ))}
+      </View>
+    </View>
+  );
+}
+
 export default function ProgressiScreen() {
   const router = useRouter();
   const [loading, setLoading] = useState(true);
@@ -217,6 +357,33 @@ export default function ProgressiScreen() {
           )}
         </View>
 
+        {/* Pace Progression Line Chart */}
+        {analytics.pace_progression && analytics.pace_progression.length > 2 && (
+          <View style={styles.sectionCard}>
+            <View style={styles.sectionHeader}>
+              <Ionicons name="analytics" size={20} color={COLORS.blue} />
+              <Text style={styles.sectionTitle}>ANDAMENTO PACES</Text>
+            </View>
+            <Text style={styles.predBasedOn}>Ritmi medi per zona, settimana per settimana</Text>
+            <PaceLineChart data={analytics.pace_progression} />
+            <View style={styles.legendRow}>
+              <View style={styles.legendItem}>
+                <View style={[styles.legendDot, { backgroundColor: '#4ade80' }]} />
+                <Text style={styles.legendText}>Easy</Text>
+              </View>
+              <View style={styles.legendItem}>
+                <View style={[styles.legendDot, { backgroundColor: '#facc15' }]} />
+                <Text style={styles.legendText}>Tempo</Text>
+              </View>
+              <View style={styles.legendItem}>
+                <View style={[styles.legendDot, { backgroundColor: '#f87171' }]} />
+                <Text style={styles.legendText}>Fast</Text>
+              </View>
+            </View>
+            <Text style={styles.chartNote}>↓ Linee che scendono = passo più veloce (meglio)</Text>
+          </View>
+        )}
+
         {/* Race Predictions */}
         <View style={styles.sectionCard}>
           <View style={styles.sectionHeader}>
@@ -400,4 +567,10 @@ const styles = StyleSheet.create({
   effortMeta: { alignItems: 'flex-end' },
   effortHr: { fontSize: FONT_SIZES.xs, color: COLORS.textSecondary },
   effortDate: { fontSize: 9, color: COLORS.textMuted, marginTop: 2 },
+
+  // Legend
+  legendRow: { flexDirection: 'row', justifyContent: 'center', gap: SPACING.lg, marginTop: SPACING.md },
+  legendItem: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  legendDot: { width: 8, height: 8, borderRadius: 4 },
+  legendText: { fontSize: FONT_SIZES.xs, color: COLORS.textSecondary },
 });
