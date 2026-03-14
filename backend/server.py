@@ -1776,14 +1776,14 @@ async def adapt_training_plan():
 async def get_adaptation_status():
     """Return current scientific training metrics and last adaptation decision.
 
-    Shows ACWR (Gabbett), monotony/strain (Foster), polarization (Seiler),
-    and the most recent adaptation log entry."""
+    Shows separate acute/chronic loads (Impellizzeri 2020, NOT ACWR ratio),
+    monotony/strain (Foster), polarization (Seiler), and last adaptation log."""
     profile = await db.profile.find_one({}, {"_id": 0}) or {}
     max_hr = profile.get("max_hr", 180)
     current_vdot = profile.get("current_vdot")
     today = date.today()
 
-    # Load runs for EWMA calculation
+    # Load runs
     eight_weeks_ago = (today - timedelta(days=56)).isoformat()
     runs = await db.runs.find(
         {"date": {"$gte": eight_weeks_ago}}, {"_id": 0}
@@ -1806,23 +1806,46 @@ async def get_adaptation_status():
         intensity = (hr / max_hr) if (hr and max_hr > 0) else 0.72
         daily_loads[d] = daily_loads.get(d, 0) + dist * intensity
 
-    # EWMA-ACWR (Gabbett 2016)
-    all_dates = []
-    cursor = today - timedelta(days=55)
-    while cursor <= today:
-        all_dates.append(cursor.isoformat())
-        cursor += timedelta(days=1)
+    # Weekly loads for last 4 weeks (separate acute/chronic, Impellizzeri 2020)
+    weekly_data = []
+    for w in range(4):
+        wk_start = today - timedelta(days=(w + 1) * 7)
+        wk_end = today - timedelta(days=w * 7)
+        wk_load = 0.0
+        wk_km = 0.0
+        c = wk_start
+        while c < wk_end:
+            d = c.isoformat()
+            wk_load += daily_loads.get(d, 0)
+            for r in runs:
+                if r.get("date", "") == d:
+                    wk_km += r.get("distance_km", 0)
+            c += timedelta(days=1)
+        weekly_data.append({"load": round(wk_load, 2), "km": round(wk_km, 1)})
 
-    ewma_a = ewma_c = 0.0
-    la, lc = 2 / 8, 2 / 29
-    for i, d in enumerate(all_dates):
-        load = daily_loads.get(d, 0)
-        if i == 0:
-            ewma_a = ewma_c = load
-        else:
-            ewma_a = load * la + (1 - la) * ewma_a
-            ewma_c = load * lc + (1 - lc) * ewma_c
-    acwr = round(ewma_a / ewma_c, 2) if ewma_c > 0.01 else 1.0
+    acute_load = weekly_data[0]["load"]
+    acute_km = weekly_data[0]["km"]
+    chronic_loads = [w["load"] for w in weekly_data if w["load"] > 0]
+    chronic_avg = round(sum(chronic_loads) / len(chronic_loads), 2) if chronic_loads else acute_load
+    chronic_avg_km = round(sum(w["km"] for w in weekly_data) / max(len([w for w in weekly_data if w["km"] > 0]), 1), 1)
+
+    # Week-over-week change (primary spike metric)
+    prev_km = weekly_data[1]["km"] if len(weekly_data) > 1 else acute_km
+    wow_pct = round(((acute_km - prev_km) / prev_km) * 100, 1) if prev_km > 0 else 0.0
+
+    # Load status interpretation
+    if wow_pct > 30:
+        load_status = "danger"
+        load_label = f"⚠️ Spike +{wow_pct}% WoW — Rischio elevato"
+    elif wow_pct > 20:
+        load_status = "caution"
+        load_label = f"⚡ Aumento +{wow_pct}% WoW — Cautela"
+    elif wow_pct < -25:
+        load_status = "detraining_risk"
+        load_label = f"💡 Calo {wow_pct}% WoW — Rischio detraining"
+    else:
+        load_status = "optimal"
+        load_label = f"✅ Carico stabile ({wow_pct:+.1f}% WoW)"
 
     # Monotony & Strain (Foster 1998)
     last_7 = [(today - timedelta(days=i)).isoformat() for i in range(6, -1, -1)]
@@ -1851,20 +1874,6 @@ async def get_adaptation_status():
             z3 += 1
     easy_pct = round(z1 / hr_n * 100) if hr_n >= 3 else None
 
-    # ACWR interpretation
-    if acwr > 1.5:
-        acwr_status = "danger"
-        acwr_label = f"⚠️ ACWR {acwr} — Zona pericolo (Gabbett: >1.5)"
-    elif acwr > 1.3:
-        acwr_status = "caution"
-        acwr_label = f"⚡ ACWR {acwr} — Attenzione (Gabbett: 1.3-1.5)"
-    elif acwr >= 0.8:
-        acwr_status = "optimal"
-        acwr_label = f"✅ ACWR {acwr} — Zona ottimale (Gabbett: 0.8-1.3)"
-    else:
-        acwr_status = "undertraining"
-        acwr_label = f"💡 ACWR {acwr} — Sotto-allenamento (Gabbett: <0.8)"
-
     # Last adaptation log
     last_log = await db.adaptation_log.find_one(
         {}, {"_id": 0}, sort=[("date", -1)]
@@ -1888,9 +1897,13 @@ async def get_adaptation_status():
         "phase": phase,
         "this_week_km": this_week_km,
         "metrics": {
-            "acwr": acwr,
-            "acwr_status": acwr_status,
-            "acwr_label": acwr_label,
+            "acute_load": round(acute_load, 1),
+            "chronic_load": chronic_avg,
+            "acute_km": acute_km,
+            "chronic_avg_km": chronic_avg_km,
+            "wow_change_pct": wow_pct,
+            "load_status": load_status,
+            "load_label": load_label,
             "monotony": monotony,
             "monotony_warning": monotony > 2.0,
             "strain": strain,
@@ -1906,10 +1919,13 @@ async def get_adaptation_status():
             "decisions": last_log.get("decisions", []) if last_log else [],
         },
         "science_references": [
-            "Gabbett (2016) Br J Sports Med — ACWR sweet spot 0.8-1.3",
+            "Impellizzeri et al. (2020) Int J Sports Physiol Perform — Carichi acuto/cronico monitorati separatamente, NO ratio ACWR",
+            "BMC Sports Medicine (2025) meta-analisi — ACWR associato a rischio ma con cautela (eterogeneità, mathematical coupling)",
+            "ACSM (2013) — Regola del 10%/settimana come guardrail primario",
             "Foster (1998) Med Sci Sports Exerc — Monotony >2.0 = overtraining risk",
             "Seiler (2010) Int J Sports Physiol Perform — Polarized 80/20 distribution",
             "Daniels (2014) Running Formula — VDOT 2/3 rule, pace zones",
+            "Mujika & Padilla (2003) — Tapering: volume -40/60%, intensità mantenuta",
         ],
     }
 
@@ -2717,47 +2733,54 @@ async def auto_adapt_plan():
         → VDOT-based pace zones. Conservative updates: 2/3 of improvement,
           max +1 VDOT per mesocycle (4-6 weeks). Paces handled separately.
 
-    [2] Gabbett, T.J. (2016). Br J Sports Med, 50(5), 273-280.
-        "The training—injury prevention paradox"
-        → ACWR via EWMA. Sweet spot: 0.8–1.3. Danger: >1.5.
-          λ_acute = 2/(7+1) = 0.25, λ_chronic = 2/(28+1) ≈ 0.069
-          (Williams et al. 2017 validated these decay constants.)
+    [2] Impellizzeri, F.M. et al. (2020). Int J Sports Physiol Perform, 15(5).
+        "Acute:Chronic Workload Ratio: Conceptual Issues and Fundamental Pitfalls"
+        → Il ratio ACWR soffre di mathematical coupling (il carico acuto è
+          già incluso nel cronico), producendo artefatti statistici spuri.
+          Raccomandazione: monitorare carico acuto e cronico SEPARATAMENTE,
+          non come ratio. Il ratio non è validato per decisioni di training.
+        Supportato da: BMC Sports Medicine meta-analisi (2025) — l'ACWR è
+        associato al rischio infortuni ma va usato con cautela data
+        l'eterogeneità degli studi.
 
-    [3] Seiler, S. (2010). Int J Sports Physiol Perform, 5(3), 276-291.
+    [3] ACSM (2013). Guidelines for Exercise Testing and Prescription, 9th ed.
+        → Weekly volume increase ≤ 10%. Il guardrail pratico più robusto
+          per la progressione del carico, non dipende da ratio spuri.
+
+    [4] Seiler, S. (2010). Int J Sports Physiol Perform, 5(3), 276-291.
         "What is best practice for training intensity and duration distribution?"
         → Polarized model: ≥80% training in Zone 1 (< VT1 = 80% HRmax),
           ≤5% Zone 2, ~15-20% Zone 3 (> VT2 = 88% HRmax).
 
-    [4] Foster, C. (1998). Med Sci Sports Exerc, 30(7), 1164-1168.
+    [5] Foster, C. (1998). Med Sci Sports Exerc, 30(7), 1164-1168.
         "Monitoring training in athletes with reference to overtraining syndrome"
         → Monotony = mean(daily_load) / SD(daily_load). Threshold: >2.0.
           Strain = weekly_load × monotony.
 
-    [5] Mujika, I. & Padilla, S. (2003). Med Sci Sports Exerc, 35(7), 1182-1187.
+    [6] Mujika, I. & Padilla, S. (2003). Med Sci Sports Exerc, 35(7), 1182-1187.
         "Scientific bases for precompetition tapering strategies"
         → Optimal taper: reduce volume 40-60%, maintain intensity, 2-3 weeks.
 
-    [6] ACSM (2013). Guidelines for Exercise Testing and Prescription, 9th ed.
-        → Weekly volume increase ≤ 10%.
+    NOTA METODOLOGICA: Questo sistema NON usa il ratio ACWR come decisore.
+    Come evidenziato da Impellizzeri et al. (2020), il ratio soffre di
+    mathematical coupling e produce artefatti. Al suo posto usiamo:
+    - Monitoraggio SEPARATO del carico acuto (7gg) e cronico (28gg)
+    - Regola del 10%/settimana come guardrail primario (ACSM)
+    - Spike detection: variazione settimana-su-settimana in valore assoluto
     ──────────────────────────────────────────────────────────────────────
     """
 
     # ══════════════════════════════════════════════════════════════════
-    # CONSTANTS (all derived from the cited literature)
+    # CONSTANTS
     # ══════════════════════════════════════════════════════════════════
-    EWMA_LAMBDA_ACUTE = 2 / (7 + 1)       # 0.25   — Gabbett/Williams
-    EWMA_LAMBDA_CHRONIC = 2 / (28 + 1)    # ~0.069 — Gabbett/Williams
-    ACWR_SWEET_LOW = 0.8                   # Gabbett 2016
-    ACWR_SWEET_HIGH = 1.3                  # Gabbett 2016
-    ACWR_DANGER = 1.5                      # Gabbett 2016
-    MAX_WEEKLY_INCREASE_PCT = 0.10         # ACSM 10% rule
     MONOTONY_THRESHOLD = 2.0              # Foster 1998
-    POLARIZATION_EASY_MIN = 0.75           # Seiler: target ≥80%, alert at <75%
-    MIN_RUNS_FOR_ADAPTATION = 5            # need ≥4 weeks chronic data
-    MIN_DAYS_FOR_ACWR = 21                 # EWMA needs ≥3 weeks to stabilize
-    DEFAULT_INTENSITY = 0.72               # midpoint Z2 easy running (~130/180)
+    MIN_RUNS_FOR_ADAPTATION = 5           # need sufficient data
+    DEFAULT_INTENSITY = 0.72              # midpoint Z2 easy running (~130/180)
+    # Spike thresholds (Impellizzeri 2020: monitor loads separately)
+    WEEKLY_SPIKE_DANGER_PCT = 30          # >30% week-over-week = spike pericoloso
+    WEEKLY_SPIKE_CAUTION_PCT = 20         # >20% = cautela
 
-    # Phase-specific volume caps (Daniels periodization + ACSM)
+    # Phase-specific volume caps (Daniels periodization + ACSM 10% rule)
     PHASE_CAPS = {
         "Ripresa":                 {"max_km": 35,  "max_increase": 0.08, "max_long_km": 12},
         "Base Aerobica":           {"max_km": 48,  "max_increase": 0.10, "max_long_km": 18},
@@ -2774,7 +2797,7 @@ async def auto_adapt_plan():
     profile = await db.profile.find_one({}, {"_id": 0}) or {}
     max_hr = profile.get("max_hr", 180)
 
-    # Load 8 weeks of runs for chronic window
+    # Load 8 weeks of runs
     eight_weeks_ago = (today - timedelta(days=56)).isoformat()
     runs = await db.runs.find(
         {"date": {"$gte": eight_weeks_ago}}, {"_id": 0}
@@ -2786,7 +2809,7 @@ async def auto_adapt_plan():
             "adaptation_type": "insufficient_data",
             "message": f"Solo {len(runs)} corse nelle ultime 8 settimane. "
                        f"Servono almeno {MIN_RUNS_FOR_ADAPTATION} per un'analisi affidabile.",
-            "science": "Gabbett (2016): il chronic workload richiede ≥4 settimane di dati per stabilizzarsi."
+            "science": "Servono ≥4 settimane di dati per stabilizzare il carico cronico."
         }
 
     all_weeks = await db.training_plan.find({}, {"_id": 0}).to_list(200)
@@ -2798,10 +2821,13 @@ async def auto_adapt_plan():
     phase_cap = PHASE_CAPS.get(current_phase, PHASE_CAPS["Base Aerobica"])
 
     # ══════════════════════════════════════════════════════════════════
-    # STEP 2 — EWMA-ACWR (Gabbett 2016, Williams et al. 2017)
+    # STEP 2 — WEEKLY LOAD TRACKING (Impellizzeri 2020: separate monitoring)
     # ══════════════════════════════════════════════════════════════════
-    # Training load per run: simplified TRIMP = distance × (avg_hr / max_hr)
-    # If no HR data, use DEFAULT_INTENSITY (conservative Z2 estimate)
+    # Instead of ACWR ratio (mathematically coupled, produces spurious
+    # correlations), we track acute and chronic loads INDEPENDENTLY
+    # and detect spikes via week-over-week absolute change.
+
+    # Build daily training loads: simplified TRIMP = distance × (avg_hr / max_hr)
     daily_loads = {}
     for run in runs:
         d = run.get("date", "")
@@ -2811,27 +2837,40 @@ async def auto_adapt_plan():
         load = dist * intensity
         daily_loads[d] = daily_loads.get(d, 0) + load
 
-    # Build continuous daily series (fill rest days with 0)
-    all_dates = []
-    cursor = today - timedelta(days=55)
-    while cursor <= today:
-        all_dates.append(cursor.isoformat())
-        cursor += timedelta(days=1)
+    # Compute weekly load totals for last 8 weeks
+    weekly_loads = []
+    for w in range(8):
+        wk_start = today - timedelta(days=(w + 1) * 7)
+        wk_end = today - timedelta(days=w * 7)
+        wk_total = 0.0
+        wk_km = 0.0
+        cursor = wk_start
+        while cursor < wk_end:
+            d = cursor.isoformat()
+            wk_total += daily_loads.get(d, 0)
+            # Also track raw km
+            for run in runs:
+                if run.get("date", "") == d:
+                    wk_km += run.get("distance_km", 0)
+            cursor += timedelta(days=1)
+        weekly_loads.append({"load": round(wk_total, 2), "km": round(wk_km, 1)})
 
-    # Compute EWMA
-    ewma_acute = 0.0
-    ewma_chronic = 0.0
-    for i, d in enumerate(all_dates):
-        load = daily_loads.get(d, 0)
-        if i == 0:
-            ewma_acute = load
-            ewma_chronic = load
-        else:
-            ewma_acute = load * EWMA_LAMBDA_ACUTE + (1 - EWMA_LAMBDA_ACUTE) * ewma_acute
-            ewma_chronic = load * EWMA_LAMBDA_CHRONIC + (1 - EWMA_LAMBDA_CHRONIC) * ewma_chronic
+    # weekly_loads[0] = most recent complete week, [1] = week before, etc.
+    current_week_load = weekly_loads[0]["load"]
+    current_week_km = weekly_loads[0]["km"]
+    prev_week_load = weekly_loads[1]["load"] if len(weekly_loads) > 1 else current_week_load
+    prev_week_km = weekly_loads[1]["km"] if len(weekly_loads) > 1 else current_week_km
 
-    acwr = round(ewma_acute / ewma_chronic, 2) if ewma_chronic > 0.01 else 1.0
-    days_with_data = len([d for d in all_dates if daily_loads.get(d, 0) > 0])
+    # Chronic load = average of weeks 1-4 (28 days)
+    chronic_loads = [w["load"] for w in weekly_loads[:4] if w["load"] > 0]
+    chronic_avg = sum(chronic_loads) / len(chronic_loads) if chronic_loads else current_week_load
+    chronic_km = sum(w["km"] for w in weekly_loads[:4]) / max(len([w for w in weekly_loads[:4] if w["km"] > 0]), 1)
+
+    # Week-over-week change (the primary spike detector)
+    if prev_week_km > 0:
+        wow_change_pct = round(((current_week_km - prev_week_km) / prev_week_km) * 100, 1)
+    else:
+        wow_change_pct = 0.0
 
     # ══════════════════════════════════════════════════════════════════
     # STEP 3 — INTENSITY DISTRIBUTION (Seiler 2010)
@@ -2867,10 +2906,10 @@ async def auto_adapt_plan():
     # STEP 4 — TRAINING MONOTONY & STRAIN (Foster 1998)
     # ══════════════════════════════════════════════════════════════════
     last_7_days = [(today - timedelta(days=i)).isoformat() for i in range(6, -1, -1)]
-    week_loads = [daily_loads.get(d, 0) for d in last_7_days]
-    weekly_total = sum(week_loads)
+    week_loads_daily = [daily_loads.get(d, 0) for d in last_7_days]
+    weekly_total = sum(week_loads_daily)
     mean_load = weekly_total / 7.0
-    variance = sum((l - mean_load) ** 2 for l in week_loads) / 7.0
+    variance = sum((l - mean_load) ** 2 for l in week_loads_daily) / 7.0
     sd_load = math.sqrt(variance) if variance > 0 else 0.01
     monotony = round(mean_load / sd_load, 2) if sd_load > 0.01 else 0.0
     strain = round(weekly_total * monotony, 1)
@@ -2891,48 +2930,47 @@ async def auto_adapt_plan():
     science_notes = []
     adaptation_type = "none"
 
-    # A) ACWR-based volume guard (Gabbett 2016) — HIGHEST PRIORITY (safety)
-    acwr_usable = days_with_data >= MIN_DAYS_FOR_ACWR
-    if acwr_usable:
-        if acwr > ACWR_DANGER:
-            volume_multiplier = 0.85  # reduce 15%
-            adaptation_type = "acwr_danger_reduction"
-            alerts.append(
-                f"⚠️ ACWR {acwr} > {ACWR_DANGER} (zona pericolo infortunio). "
-                f"Volume ridotto del 15% per le prossime settimane."
-            )
-            science_notes.append(
-                "Gabbett (2016): ACWR >1.5 aumenta il rischio di infortunio di 2-4x. "
-                "Riduzione immediata del carico raccomandata."
-            )
-        elif acwr > ACWR_SWEET_HIGH:
-            volume_multiplier = 0.92  # reduce 8%
-            adaptation_type = "acwr_caution"
-            alerts.append(
-                f"⚡ ACWR {acwr} leggermente elevato (>{ACWR_SWEET_HIGH}). "
-                f"Volume ridotto dell'8%."
-            )
-            science_notes.append(
-                "Gabbett (2016): ACWR 1.3-1.5 richiede cautela. "
-                "Evitare ulteriori spike di carico."
-            )
-        elif acwr < ACWR_SWEET_LOW and current_phase not in ["Tapering", "Ripresa"]:
-            # Undertraining — can increase cautiously
-            volume_multiplier = 1.05
-            adaptation_type = "acwr_undertraining"
-            science_notes.append(
-                f"ACWR {acwr} < {ACWR_SWEET_LOW}: margine per aumentare il carico. "
-                f"Volume +5% (Gabbett 2016: ACWR basso = atleta sotto-preparato = rischio paradosso)."
-            )
-        else:
-            science_notes.append(
-                f"ACWR {acwr}: nella zona ottimale ({ACWR_SWEET_LOW}-{ACWR_SWEET_HIGH}). "
-                f"Nessuna modifica di volume necessaria."
-            )
+    # A) LOAD SPIKE DETECTION (Impellizzeri 2020: separate monitoring)
+    #    Instead of ACWR ratio (mathematical coupling problem), we detect
+    #    dangerous week-over-week spikes directly.
+    if wow_change_pct > WEEKLY_SPIKE_DANGER_PCT:
+        volume_multiplier = 0.85  # reduce 15%
+        adaptation_type = "load_spike_reduction"
+        alerts.append(
+            f"⚠️ Spike di carico: +{wow_change_pct}% settimana-su-settimana "
+            f"(>{WEEKLY_SPIKE_DANGER_PCT}%). Volume ridotto del 15%."
+        )
+        science_notes.append(
+            "Impellizzeri et al. (2020): spike di carico >30% settimana-su-settimana "
+            "associati a rischio infortunio elevato. Monitoraggio separato del carico "
+            "acuto e cronico (non come ratio ACWR, che soffre di mathematical coupling)."
+        )
+    elif wow_change_pct > WEEKLY_SPIKE_CAUTION_PCT:
+        volume_multiplier = 0.92  # reduce 8%
+        adaptation_type = "load_spike_caution"
+        alerts.append(
+            f"⚡ Aumento carico rapido: +{wow_change_pct}% settimana-su-settimana. "
+            f"Volume ridotto dell'8% per evitare spike."
+        )
+        science_notes.append(
+            "Aumento >20% settimanale: si applica cautela. "
+            "ACSM (2013): la regola del 10% è il guardrail più robusto."
+        )
+    elif wow_change_pct < -25 and current_phase not in ["Tapering", "Ripresa"]:
+        # Big drop = potential detraining or missed sessions
+        alerts.append(
+            f"💡 Calo carico: {wow_change_pct}% settimana-su-settimana. "
+            f"Assicurati di non saltare troppe sessioni."
+        )
+        science_notes.append(
+            "Calo significativo del carico: rischio perdita adattamenti se prolungato. "
+            "La continuità del carico è più importante dell'intensità occasionale."
+        )
     else:
         science_notes.append(
-            f"Solo {days_with_data} giorni di dati (servono ≥{MIN_DAYS_FOR_ACWR}). "
-            f"ACWR non ancora affidabile — si applicano solo i limiti di fase."
+            f"Carico settimanale stabile ({wow_change_pct:+.1f}% WoW). "
+            f"Acuto: {current_week_load:.1f}, Cronico medio: {chronic_avg:.1f} "
+            f"(monitorati separatamente, Impellizzeri 2020)."
         )
 
     # B) Monotony guard (Foster 1998)
@@ -2972,7 +3010,6 @@ async def auto_adapt_plan():
     # D) Phase-specific volume cap (Daniels periodization)
     if current_phase == "Tapering":
         # Mujika & Padilla 2003: progressive taper
-        # Find which taper week this is
         taper_weeks = [w for w in all_weeks if w.get("phase") == "Tapering"]
         taper_week_nums = sorted([w.get("week_number", 0) for w in taper_weeks])
         current_week_num = future_weeks[0].get("week_number", 0) if future_weeks else 0
@@ -2997,12 +3034,13 @@ async def auto_adapt_plan():
 
     # E) If no adjustments needed
     if volume_multiplier == 1.0 and not alerts:
-        # Log the analysis anyway
         await db.adaptation_log.insert_one({
             "id": str(uuid.uuid4()),
             "date": today.isoformat(),
             "adapted": False,
-            "acwr": acwr,
+            "acute_load": current_week_load,
+            "chronic_load": chronic_avg,
+            "wow_change_pct": wow_change_pct,
             "monotony": monotony,
             "strain": strain,
             "polarization_z1_pct": round(polarization_easy_pct * 100),
@@ -3015,7 +3053,11 @@ async def auto_adapt_plan():
             "adaptation_type": "none",
             "message": "Piano in linea con le performance. Nessun adattamento necessario.",
             "metrics": {
-                "acwr": acwr,
+                "acute_load": round(current_week_load, 1),
+                "chronic_load": round(chronic_avg, 1),
+                "wow_change_pct": wow_change_pct,
+                "current_week_km": round(current_week_km, 1),
+                "chronic_avg_km": round(chronic_km, 1),
                 "monotony": monotony,
                 "strain": strain,
                 "polarization_easy_pct": round(polarization_easy_pct * 100),
@@ -3075,7 +3117,9 @@ async def auto_adapt_plan():
                 "adaptation_date": today.isoformat(),
                 "adaptation_type": adaptation_type,
                 "adaptation_metrics": {
-                    "acwr": acwr,
+                    "acute_load": round(current_week_load, 2),
+                    "chronic_load": round(chronic_avg, 2),
+                    "wow_change_pct": wow_change_pct,
                     "monotony": monotony,
                     "volume_multiplier": round(volume_multiplier, 3),
                 },
@@ -3097,7 +3141,9 @@ async def auto_adapt_plan():
         "id": str(uuid.uuid4()),
         "date": today.isoformat(),
         "adapted": True,
-        "acwr": acwr,
+        "acute_load": current_week_load,
+        "chronic_load": chronic_avg,
+        "wow_change_pct": wow_change_pct,
         "monotony": monotony,
         "strain": strain,
         "polarization_z1_pct": round(polarization_easy_pct * 100),
@@ -3120,7 +3166,11 @@ async def auto_adapt_plan():
         "volume_multiplier": round(volume_multiplier, 3),
         "adapted_weeks": adapted_weeks,
         "metrics": {
-            "acwr": acwr,
+            "acute_load": round(current_week_load, 1),
+            "chronic_load": round(chronic_avg, 1),
+            "wow_change_pct": wow_change_pct,
+            "current_week_km": round(current_week_km, 1),
+            "chronic_avg_km": round(chronic_km, 1),
             "monotony": monotony,
             "strain": strain,
             "polarization_easy_pct": round(polarization_easy_pct * 100),
