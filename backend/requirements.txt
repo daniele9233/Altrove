@@ -17,4 +17,4 @@ typing_extensions==4.15.0
 annotated-types==0.7.0
 idna==3.11
 certifi==2026.2.25
-openai==1.99.9
+anthropic==0.52.0

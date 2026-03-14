@@ -249,6 +249,9 @@ class TestResponse(BaseModel):
 class AIAnalyzeRequest(BaseModel):
     run_id: str
 
+class PushTokenRequest(BaseModel):
+    token: str
+
 class SessionCompleteRequest(BaseModel):
     week_id: str
     session_index: int
@@ -469,8 +472,9 @@ def get_weekly_history_data():
         ("2025-11-10", "2025-11-16", 20.09, 2025), ("2025-11-17", "2025-11-23", 30.68, 2025),
         ("2025-11-24", "2025-11-30", 16.19, 2025),
         ("2026-01-26", "2026-02-01", 2.0, 2026), ("2026-02-02", "2026-02-08", 10.03, 2026),
-        ("2026-02-09", "2026-02-15", 13.02, 2026), ("2026-02-23", "2026-03-01", 13.02, 2026),
-        ("2026-03-02", "2026-03-08", 6.01, 2026),
+        ("2026-02-09", "2026-02-15", 13.02, 2026), ("2026-02-16", "2026-02-22", 0.0, 2026),
+        ("2026-02-23", "2026-03-01", 13.02, 2026),
+        ("2026-03-02", "2026-03-08", 21.03, 2026), ("2026-03-09", "2026-03-15", 8.19, 2026),
     ]
     result = []
     for i, (ws, we, km, yr) in enumerate(data):
@@ -478,17 +482,8 @@ def get_weekly_history_data():
     return result
 
 def get_seed_runs():
-    return [
-        {"id": make_id(), "date": "2025-11-21", "distance_km": 6.0, "duration_minutes": 26.0, "avg_pace": "4:20", "avg_hr": 149, "max_hr": 161, "avg_hr_pct": 83, "max_hr_pct": 89, "run_type": "test", "notes": "Test 6km - Miglior forma pre-infortunio", "location": "Roma"},
-        {"id": make_id(), "date": "2025-10-15", "distance_km": 10.0, "duration_minutes": 45.52, "avg_pace": "4:33", "avg_hr": 158, "max_hr": 170, "avg_hr_pct": 88, "max_hr_pct": 94, "run_type": "race", "notes": "PB 10km - 45:31", "location": "Roma"},
-        {"id": make_id(), "date": "2025-10-28", "distance_km": 15.0, "duration_minutes": 73.63, "avg_pace": "4:54", "avg_hr": 155, "max_hr": 172, "avg_hr_pct": 86, "max_hr_pct": 96, "run_type": "long", "notes": "PB 15km - 1:13:38", "location": "Roma"},
-        {"id": make_id(), "date": "2025-09-20", "distance_km": 4.01, "duration_minutes": 16.13, "avg_pace": "4:01", "avg_hr": 168, "max_hr": 178, "avg_hr_pct": 94, "max_hr_pct": 99, "run_type": "race", "notes": "PB 4km - 16:08", "location": "Roma"},
-        {"id": make_id(), "date": "2026-03-07", "distance_km": 6.01, "duration_minutes": 28.87, "avg_pace": "4:48", "avg_hr": 159, "max_hr": 179, "avg_hr_pct": 88, "max_hr_pct": 99, "run_type": "progressive", "notes": "Roma - Progressivo. Sofferta, FC molto alta. Ritorno post-infortunio.", "location": "Roma"},
-        {"id": make_id(), "date": "2026-02-25", "distance_km": 5.01, "duration_minutes": 28.56, "avg_pace": "5:42", "avg_hr": 145, "max_hr": 162, "avg_hr_pct": 81, "max_hr_pct": 90, "run_type": "easy", "notes": "Corsa facile di ripresa", "location": "Roma"},
-        {"id": make_id(), "date": "2026-02-20", "distance_km": 4.01, "duration_minutes": 23.66, "avg_pace": "5:54", "avg_hr": 140, "max_hr": 158, "avg_hr_pct": 78, "max_hr_pct": 88, "run_type": "easy", "notes": "Ripresa graduale", "location": "Roma"},
-        {"id": make_id(), "date": "2026-02-14", "distance_km": 6.01, "duration_minutes": 34.86, "avg_pace": "5:48", "avg_hr": 143, "max_hr": 160, "avg_hr_pct": 79, "max_hr_pct": 89, "run_type": "easy", "notes": "Corsa lenta post-infortunio", "location": "Roma"},
-        {"id": make_id(), "date": "2026-02-05", "distance_km": 5.02, "duration_minutes": 30.12, "avg_pace": "6:00", "avg_hr": 138, "max_hr": 155, "avg_hr_pct": 77, "max_hr_pct": 86, "run_type": "easy", "notes": "Prima corsa seria di ritorno", "location": "Roma"},
-    ]
+    """No seed runs — only Strava-imported runs are used."""
+    return []
 
 def get_supplements():
     return [
@@ -636,20 +631,27 @@ async def seed_data():
 
     await db.profile.insert_one(get_profile())
     await db.weekly_history.insert_many(get_weekly_history_data())
-    seed_runs = get_seed_runs()
-    await db.runs.insert_many(seed_runs)
-
-    # Calculate VDOT from seed runs to generate plan with scientific paces
+    # No seed runs — only Strava-imported runs are real data
+    # Use default VDOT from profile PBs for initial plan generation
     vdot_paces = None
     best_vdot = None
-    for run in seed_runs:
-        if run.get("distance_km", 0) >= 4 and run.get("duration_minutes", 0) > 0:
-            vdot = calculate_vdot_from_race(run["distance_km"], run["duration_minutes"])
+    profile = get_profile()
+    pbs = profile.get("pbs", {})
+    for dist_str, pb_data in pbs.items():
+        dist_km = float(dist_str.replace("km", ""))
+        time_str = pb_data.get("time", "")
+        if ":" in time_str:
+            parts = time_str.split(":")
+            if len(parts) == 3:
+                mins = int(parts[0]) * 60 + int(parts[1]) + int(parts[2]) / 60
+            else:
+                mins = int(parts[0]) + int(parts[1]) / 60
+            vdot = calculate_vdot_from_race(dist_km, mins)
             if vdot and (best_vdot is None or vdot > best_vdot):
                 best_vdot = vdot
     if best_vdot:
         vdot_paces = vdot_training_paces(best_vdot)
-        logger.info(f"Seed: VDOT {best_vdot} → paces {vdot_paces}")
+        logger.info(f"Seed: VDOT {best_vdot} from PBs → paces {vdot_paces}")
 
     plan = generate_training_plan(vdot_paces=vdot_paces)
     if plan:
@@ -971,7 +973,19 @@ SESSIONE PIANIFICATA PER QUESTO GIORNO:
             pace_diff_pct = round(pace_diff / planned_secs * 100, 1)
             run_info += f"\n- DEVIAZIONE PASSO: {abs(pace_diff)}s/km {direction} ({'+' if pace_diff_pct > 0 else ''}{pace_diff_pct}%)"
     else:
-        run_info += "\n\nNESSUNA SESSIONE PIANIFICATA per questo giorno (corsa extra o fuori piano)."
+        # Corsa extra: analizza comunque in base al tipo, passo, FC
+        run_type = run.get("run_type", "unknown")
+        run_info += f"""
+
+CORSA EXTRA (fuori dal piano di allenamento).
+Analizzala comunque in base a:
+- Tipo corsa: {run_type}
+- Se è un "easy" / "lento": valuta se il passo e la FC sono coerenti con Z2 (FC <80% max)
+- Se sono "ripetute" / "interval": valuta l'esecuzione, recuperi, coerenza dei parziali
+- Se è un "progressive" / "progressivo": valuta la progressione del passo
+- Se è un "tempo" / "soglia": valuta se è rimasto vicino alla soglia anaerobica
+- Confronta sempre con i PASSI DANIELS del VDOT attuale
+- Dai feedback su come questa corsa extra si inserisce nel piano complessivo"""
 
     if planned_week:
         run_info += f"""
@@ -991,22 +1005,22 @@ CONTESTO SETTIMANA:
             )
 
     try:
-        import openai
-        ai_key = os.environ.get('OPENAI_API_KEY', '')
+        import anthropic
+        ai_key = os.environ.get('ANTHROPIC_API_KEY', '')
         if not ai_key:
             # Fallback: generate a basic analysis without AI
             response = _generate_basic_analysis(run, planned_session, planned_week)
         else:
-            client_ai = openai.AsyncOpenAI(api_key=ai_key)
-            result = await client_ai.chat.completions.create(
-                model="gpt-4o-mini",
+            client_ai = anthropic.AsyncAnthropic(api_key=ai_key)
+            result = await client_ai.messages.create(
+                model="claude-sonnet-4-20250514",
+                max_tokens=1024,
+                system=system_msg,
                 messages=[
-                    {"role": "system", "content": system_msg},
                     {"role": "user", "content": run_info},
                 ],
-                max_tokens=800,
             )
-            response = result.choices[0].message.content
+            response = result.content[0].text
 
         analysis_doc = {
             "id": make_id(),
@@ -1053,6 +1067,35 @@ async def cleanup_duplicate_runs():
     total = result.deleted_count + result2.deleted_count
     remaining = await db.runs.count_documents({})
     return {"deleted": total, "remaining": remaining}
+
+@api_router.post("/push-token")
+async def register_push_token(req: PushTokenRequest):
+    """Store Expo push token for notifications."""
+    await db.push_tokens.update_one(
+        {"token": req.token},
+        {"$set": {"token": req.token, "updated_at": datetime.now(timezone.utc).isoformat()}},
+        upsert=True,
+    )
+    return {"status": "ok"}
+
+
+async def send_push_notification(title: str, body: str):
+    """Send push notification to all registered Expo push tokens."""
+    import httpx
+    tokens = await db.push_tokens.find({}, {"_id": 0, "token": 1}).to_list(10)
+    if not tokens:
+        return
+    messages = [{"to": t["token"], "title": title, "body": body, "sound": "default"} for t in tokens]
+    try:
+        async with httpx.AsyncClient() as client:
+            await client.post(
+                "https://exp.host/--/api/v2/push/send",
+                json=messages,
+                headers={"Content-Type": "application/json"},
+            )
+    except Exception as e:
+        logger.error(f"Push notification error: {e}")
+
 
 @api_router.get("/analytics")
 async def get_analytics():
@@ -1371,9 +1414,14 @@ async def get_analytics():
         if len(entry) > 1:  # has at least one zone
             pace_progression.append(entry)
 
+    # ---- VO2max history ----
+    vo2max_history_docs = await db.vo2max_history.find({}, {"_id": 0}).sort("date", 1).to_list(200)
+    vo2max_history = [{"date": d.get("date"), "vdot": d.get("vdot"), "based_on": d.get("based_on", "")} for d in vo2max_history_docs]
+
     return {
         "vo2max": vo2max,
         "vo2max_target": vo2max_target,
+        "vo2max_history": vo2max_history,
         "user_max_hr": user_max_hr,
         "race_predictions": race_predictions,
         "goal_gap_min": goal_gap_min,
@@ -2176,6 +2224,13 @@ async def auto_recalculate_vdot() -> dict:
     if current_vdot is None or best_vdot != current_vdot:
         # Store new VDOT in profile
         await db.profile.update_one({}, {"$set": {"current_vdot": best_vdot}})
+        # Save VO2max history point
+        await db.vo2max_history.insert_one({
+            "id": make_id(),
+            "date": date.today().isoformat(),
+            "vdot": best_vdot,
+            "based_on": best_run_info,
+        })
 
         # Recalculate training paces
         new_paces = vdot_training_paces(best_vdot)
@@ -2210,6 +2265,15 @@ async def auto_recalculate_vdot() -> dict:
             result["weeks_updated"] = weeks_updated
             result["message"] = f"VDOT aggiornato a {best_vdot} (da {best_run_info}). Ritmi aggiornati per {weeks_updated} settimane future."
             logger.info(result["message"])
+
+            # Send push notification for VDOT improvement
+            if current_vdot is not None and best_vdot > current_vdot:
+                improvement = round(best_vdot - current_vdot, 1)
+                threshold_pace = new_paces.get("threshold", "")
+                await send_push_notification(
+                    f"VO2max migliorato! {current_vdot} → {best_vdot} (+{improvement})",
+                    f"Nuova soglia: {threshold_pace}/km. I ritmi del piano sono stati aggiornati automaticamente."
+                )
         else:
             result["message"] = f"VDOT {best_vdot} calcolato ma impossibile derivare i ritmi"
     else:

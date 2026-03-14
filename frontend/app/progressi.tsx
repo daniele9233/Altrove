@@ -217,7 +217,7 @@ export default function ProgressiScreen() {
     );
   }
 
-  const { vo2max, vo2max_target, anaerobic_threshold, race_predictions, best_efforts, goal_progress_pct, target_hm_time_str, current_hm_pred_str } = analytics;
+  const { vo2max, vo2max_target, vo2max_history, anaerobic_threshold, race_predictions, best_efforts, goal_progress_pct, target_hm_time_str, current_hm_pred_str } = analytics;
   const history: ThresholdPoint[] = anaerobic_threshold?.history || [];
   const currentAT = anaerobic_threshold?.current || {};
   const preInjuryAT = anaerobic_threshold?.pre_injury || {};
@@ -297,6 +297,78 @@ export default function ProgressiScreen() {
           <Text style={styles.vo2Note}>
             Si aggiorna automaticamente in base alle tue corse sincronizzate da Strava
           </Text>
+
+          {/* VO2max History Chart */}
+          {vo2max_history && vo2max_history.length >= 2 && (() => {
+            const points = vo2max_history.slice(-12);
+            const vdots = points.map((p: any) => p.vdot);
+            const maxV = Math.max(...vdots) + 2;
+            const minV = Math.min(...vdots) - 2;
+            const rangeV = maxV - minV || 5;
+            const vo2ChartH = 120;
+            const vo2ChartW = CHART_WIDTH - 40;
+            const stepX = vo2ChartW / Math.max(points.length - 1, 1);
+
+            const toY = (v: number) => vo2ChartH - ((v - minV) / rangeV) * vo2ChartH;
+            const fmtDate = (d: string) => { try { const p = d.split('-'); return `${p[2]}/${p[1]}`; } catch { return d; } };
+
+            return (
+              <View style={{ marginTop: SPACING.lg }}>
+                <Text style={styles.chartLabel}>ANDAMENTO VO2MAX</Text>
+                <View style={{ height: vo2ChartH + 30, marginTop: SPACING.sm }}>
+                  <View style={{ position: 'absolute', left: 0, top: 0, height: vo2ChartH, justifyContent: 'space-between' }}>
+                    <Text style={{ fontSize: 8, color: COLORS.textMuted }}>{maxV.toFixed(1)}</Text>
+                    <Text style={{ fontSize: 8, color: COLORS.textMuted }}>{((minV + maxV) / 2).toFixed(1)}</Text>
+                    <Text style={{ fontSize: 8, color: COLORS.textMuted }}>{minV.toFixed(1)}</Text>
+                  </View>
+                  <View style={{ marginLeft: 36, height: vo2ChartH, position: 'relative' }}>
+                    {[0, 0.5, 1].map((pct, i) => (
+                      <View key={i} style={{ position: 'absolute', top: pct * vo2ChartH, left: 0, right: 0, height: 1, backgroundColor: COLORS.cardBorder, opacity: 0.5 }} />
+                    ))}
+                    {points.map((p: any, i: number) => {
+                      if (i === 0) return null;
+                      const prev = points[i - 1];
+                      const x1 = (i - 1) * stepX, y1 = toY(prev.vdot);
+                      const x2 = i * stepX, y2 = toY(p.vdot);
+                      const dx = x2 - x1, dy = y2 - y1;
+                      const length = Math.sqrt(dx * dx + dy * dy);
+                      const angle = Math.atan2(dy, dx) * (180 / Math.PI);
+                      return (
+                        <View key={`line-${i}`} style={{
+                          position: 'absolute', left: x1, top: y1,
+                          width: length, height: 2, backgroundColor: COLORS.red,
+                          transform: [{ rotate: `${angle}deg` }], transformOrigin: 'left center', opacity: 0.8,
+                        }} />
+                      );
+                    })}
+                    {points.map((p: any, i: number) => (
+                      <React.Fragment key={`dot-${i}`}>
+                        <View style={{
+                          position: 'absolute', left: i * stepX - 4, top: toY(p.vdot) - 4,
+                          width: 8, height: 8, borderRadius: 4, backgroundColor: COLORS.red,
+                        }} />
+                        <Text style={{
+                          position: 'absolute', left: i * stepX - 12, top: toY(p.vdot) - 18,
+                          fontSize: 8, color: COLORS.text, fontWeight: '700', width: 26, textAlign: 'center',
+                        }}>{p.vdot}</Text>
+                      </React.Fragment>
+                    ))}
+                  </View>
+                  <View style={{ marginLeft: 36, flexDirection: 'row', marginTop: 4 }}>
+                    {points.map((p: any, i: number) => (
+                      <Text key={i} style={{
+                        position: 'absolute', left: i * stepX - 14, fontSize: 7,
+                        color: COLORS.textMuted, width: 30, textAlign: 'center',
+                      }}>
+                        {i % Math.max(1, Math.floor(points.length / 5)) === 0 ? fmtDate(p.date) : ''}
+                      </Text>
+                    ))}
+                  </View>
+                </View>
+                <Text style={styles.chartNote}>↑ Linea che sale = VO2max migliora</Text>
+              </View>
+            );
+          })()}
         </View>
 
         {/* Soglia Anaerobica History */}

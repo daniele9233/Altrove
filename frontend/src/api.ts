@@ -53,4 +53,6 @@ export const api = {
     apiFetch('/strava/exchange-code', { method: 'POST', body: JSON.stringify({ code }) }),
   getVdotPaces: () => apiFetch('/vdot/paces'),
   recalculatePlanPaces: () => apiFetch('/training-plan/recalculate-paces', { method: 'POST' }),
+  registerPushToken: (token: string) =>
+    apiFetch('/push-token', { method: 'POST', body: JSON.stringify({ token }) }),
 };

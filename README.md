@@ -692,15 +692,21 @@ npx expo run:android
 
 ## 🔮 Prossimi Sviluppi
 
-- [ ] **EAS Updates (OTA)** — Configurare aggiornamenti over-the-air per pushare modifiche frontend senza rifare l'APK. `eas update` in 30 secondi invece di `eas build` in 10 minuti.
-- [ ] **Notifiche push giornaliere** — Reminder mattutino con la sessione del giorno
+- [ ] **EAS Updates (OTA)** — Configurare aggiornamenti over-the-air per pushare modifiche frontend senza rifare l'APK. `eas update` in 30 secondi invece di `eas build` in 10 minuti. **PRIORITA' ALTA.**
 - [ ] **Modalità offline** — Cache locale di piano/profilo per funzionare senza rete
 - [ ] **Countdown Fuerteventura** — Timer "Mancano X giorni alla gara" nella dashboard
+- [ ] **Notifiche push giornaliere** — Reminder mattutino con la sessione del giorno
 - [ ] **Note/sensazioni post-allenamento** — RPE 1-10 e note libere dopo ogni sessione
 - [ ] **Vista calendario mensile** — Piano visualizzato su calendario scrollabile
 - [ ] **Weather check pre-allenamento** — Meteo attuale nella sessione del giorno
 - [ ] **Export piano PDF** — Esportare il piano settimanale
 - [ ] **Widget Android** — Sessione di oggi nella home del telefono
+
+### Recentemente implementati
+- [x] **AI Coach con Claude** — Analisi corse con Claude (Anthropic) invece di OpenAI, supporto corse extra fuori piano
+- [x] **Notifiche push VO2max/soglia** — Notifica automatica quando il VO2max migliora dopo sync Strava
+- [x] **Grafico andamento VO2max** — Line chart nella sezione Progressi con storia VDOT
+- [x] **Solo corse Strava** — Rimossi run seed fittizi, solo dati reali da Strava
 
 ---
 
