@@ -1013,7 +1013,7 @@ CONTESTO SETTIMANA:
         else:
             client_ai = anthropic.AsyncAnthropic(api_key=ai_key)
             result = await client_ai.messages.create(
-                model="claude-sonnet-4-20250514",
+                model="claude-3-5-sonnet-20241022",
                 max_tokens=1024,
                 system=system_msg,
                 messages=[
@@ -1066,7 +1066,48 @@ async def cleanup_duplicate_runs():
     result2 = await db.runs.delete_many({"strava_id": None})
     total = result.deleted_count + result2.deleted_count
     remaining = await db.runs.count_documents({})
+
+    # After cleanup, recalculate VDOT history from remaining Strava runs
+    await _rebuild_vo2max_history()
+
     return {"deleted": total, "remaining": remaining}
+
+
+async def _rebuild_vo2max_history():
+    """Rebuild vo2max_history collection from all valid runs (4km+)."""
+    await db.vo2max_history.delete_many({})
+    runs = await db.runs.find({}, {"_id": 0}).sort("date", 1).to_list(2000)
+
+    best_vdot_so_far = None
+    for run in runs:
+        dist = run.get("distance_km", 0)
+        dur = run.get("duration_minutes", 0)
+        run_date = run.get("date", "")
+        if dist >= 3 and dur > 0 and run_date:
+            vdot = calculate_vdot_from_race(dist, dur)
+            if vdot and (best_vdot_so_far is None or vdot > best_vdot_so_far):
+                best_vdot_so_far = round(vdot, 1)
+                await db.vo2max_history.insert_one({
+                    "id": make_id(),
+                    "date": run_date,
+                    "vdot": best_vdot_so_far,
+                    "based_on": f"{dist}km ({run.get('avg_pace', '?')}/km)"
+                })
+
+    # Also update profile with current best VDOT
+    if best_vdot_so_far:
+        await db.profile.update_one({}, {"$set": {"current_vdot": best_vdot_so_far}})
+
+    return best_vdot_so_far
+
+
+@api_router.post("/vo2max-history/rebuild")
+async def rebuild_vo2max_history():
+    """Rebuild VO2max history from all valid runs."""
+    vdot = await _rebuild_vo2max_history()
+    count = await db.vo2max_history.count_documents({})
+    return {"rebuilt": True, "points": count, "current_vdot": vdot}
+
 
 @api_router.post("/push-token")
 async def register_push_token(req: PushTokenRequest):
