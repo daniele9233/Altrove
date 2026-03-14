@@ -69,13 +69,27 @@ export default function StatisticheScreen() {
         <View style={styles.headerRow}>
           <View style={styles.headerTop}>
             <Text style={styles.pageTitle}>STATISTICHE</Text>
-            <View style={{ flexDirection: 'row', gap: SPACING.sm }}>
+            <View style={{ flexDirection: 'row', gap: SPACING.sm, flexWrap: 'wrap' }}>
               <TouchableOpacity
                 style={styles.calcButton}
                 onPress={() => router.push('/progressi')}
               >
-                <Ionicons name="trending-up" size={20} color={COLORS.lime} />
+                <Ionicons name="trending-up" size={18} color={COLORS.lime} />
                 <Text style={styles.calcButtonText}>PROGRESSI</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.calcButton}
+                onPress={() => router.push('/calcolatore')}
+              >
+                <Ionicons name="calculator" size={18} color={COLORS.lime} />
+                <Text style={styles.calcButtonText}>CALC</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.calcButton, { borderColor: COLORS.orange + '40' }]}
+                onPress={() => router.push('/injury-risk')}
+              >
+                <Ionicons name="shield-checkmark" size={18} color={COLORS.orange} />
+                <Text style={[styles.calcButtonText, { color: COLORS.orange }]}>RISK</Text>
               </TouchableOpacity>
             </View>
           </View>

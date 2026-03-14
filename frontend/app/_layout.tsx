@@ -70,6 +70,8 @@ export default function RootLayout() {
         <Stack.Screen name="strava-callback" options={{ headerShown: false }} />
         <Stack.Screen name="periodizzazione" />
         <Stack.Screen name="progressi" />
+        <Stack.Screen name="calcolatore" />
+        <Stack.Screen name="injury-risk" />
         <Stack.Screen
           name="add-test"
           options={{

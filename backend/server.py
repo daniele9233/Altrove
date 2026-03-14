@@ -2793,6 +2793,174 @@ async def get_weekly_history():
     history = await db.weekly_history.find({}, {"_id": 0}).sort("week_start", 1).to_list(200)
     return {"history": history}
 
+@api_router.get("/injury-risk")
+async def get_injury_risk():
+    """Calculate injury risk score based on training load, intensity, and injury history."""
+    runs = await db.runs.find({}, {"_id": 0}).sort("date", 1).to_list(2000)
+    profile = await db.profile.find_one({}, {"_id": 0}) or {}
+    today = date.today()
+    max_hr = profile.get("max_hr", 180)
+
+    valid_runs = [r for r in runs if r.get("distance_km", 0) > 0.5 and r.get("date")]
+
+    # ---- Weekly load history (last 12 weeks) ----
+    weekly_load = []
+    for w in range(11, -1, -1):
+        week_start = today - timedelta(days=today.weekday() + 7 * w)
+        week_end = week_start + timedelta(days=6)
+        ws = week_start.isoformat()
+        we = week_end.isoformat()
+        week_runs = [r for r in valid_runs if ws <= r.get("date", "") <= we]
+        km = sum(r.get("distance_km", 0) for r in week_runs)
+        avg_pace_secs = 0
+        if week_runs:
+            paces = [_pace_to_seconds(r.get("avg_pace", "")) for r in week_runs if _pace_to_seconds(r.get("avg_pace", "")) > 0]
+            avg_pace_secs = sum(paces) / len(paces) if paces else 0
+        avg_hr = 0
+        hr_runs = [r for r in week_runs if r.get("avg_hr")]
+        if hr_runs:
+            avg_hr = round(sum(r["avg_hr"] for r in hr_runs) / len(hr_runs))
+        weekly_load.append({
+            "week_start": ws,
+            "week_label": f"{week_start.day}/{week_start.month}",
+            "km": round(km, 1),
+            "runs": len(week_runs),
+            "avg_pace_secs": round(avg_pace_secs),
+            "avg_hr": avg_hr,
+            "increase_pct": None,
+        })
+
+    # Calculate week-over-week increase percentages
+    for i in range(1, len(weekly_load)):
+        prev_km = weekly_load[i - 1]["km"]
+        curr_km = weekly_load[i]["km"]
+        if prev_km > 0:
+            weekly_load[i]["increase_pct"] = round((curr_km - prev_km) / prev_km * 100, 1)
+        elif curr_km > 0:
+            weekly_load[i]["increase_pct"] = 100.0
+
+    # ---- RISK FACTORS ----
+    factors = []
+    alerts = []
+    recommendations = []
+
+    # 1. ACWR (Acute:Chronic Workload Ratio)
+    # Acute = last 1 week, Chronic = average of last 4 weeks
+    acute_km = weekly_load[-1]["km"] if weekly_load else 0
+    chronic_km = sum(w["km"] for w in weekly_load[-4:]) / 4 if len(weekly_load) >= 4 else acute_km
+    acwr = round(acute_km / max(chronic_km, 0.1), 2)
+    acwr_score = 0
+    if acwr <= 0.8:
+        acwr_score = 15  # undertrained
+        factors.append({"name": "Carico acuto/cronico (ACWR)", "score": acwr_score,
+                        "description": f"ACWR {acwr} — Sottoccarico. Potresti aumentare gradualmente."})
+    elif acwr <= 1.3:
+        acwr_score = 10  # sweet spot
+        factors.append({"name": "Carico acuto/cronico (ACWR)", "score": acwr_score,
+                        "description": f"ACWR {acwr} — Zona ottimale (0.8-1.3). Ottimo bilanciamento."})
+    elif acwr <= 1.5:
+        acwr_score = 50
+        factors.append({"name": "Carico acuto/cronico (ACWR)", "score": acwr_score,
+                        "description": f"ACWR {acwr} — Zona di attenzione. Carico in aumento rapido."})
+        alerts.append({"level": "medium", "message": f"ACWR a {acwr}: il carico questa settimana è significativamente più alto della media. Monitora i segnali del corpo."})
+    else:
+        acwr_score = 85
+        factors.append({"name": "Carico acuto/cronico (ACWR)", "score": acwr_score,
+                        "description": f"ACWR {acwr} — Zona critica (>1.5). Rischio infortunio elevato!"})
+        alerts.append({"level": "critical", "message": f"ACWR a {acwr}: il carico è troppo alto rispetto alle ultime settimane! Riduci il volume o l'intensità."})
+
+    # 2. Week-over-week increase >20%
+    last_increase = weekly_load[-1].get("increase_pct") if weekly_load else None
+    overload_score = 0
+    if last_increase is not None:
+        if last_increase > 30:
+            overload_score = 80
+            alerts.append({"level": "high", "message": f"Aumento del {round(last_increase)}% questa settimana! La regola del 10% suggerisce incrementi più graduali."})
+            recommendations.append(f"Riduci il lungo di questa settimana di {round(acute_km * 0.15, 1)}km per restare sotto il +20%.")
+        elif last_increase > 20:
+            overload_score = 55
+            alerts.append({"level": "medium", "message": f"Aumento del {round(last_increase)}% questa settimana. Al limite della soglia sicura."})
+        elif last_increase > 10:
+            overload_score = 25
+        else:
+            overload_score = 10
+    factors.append({"name": "Incremento settimanale", "score": overload_score,
+                    "description": f"Variazione: {'+' if last_increase and last_increase > 0 else ''}{round(last_increase or 0)}% rispetto alla settimana precedente."})
+
+    # 3. Injury history factor (always elevated for post-injury runner)
+    injury = profile.get("injury", {})
+    injury_score = 40  # baseline elevated for post-injury
+    if injury:
+        injury_type = injury.get("type", "")
+        if "tendine" in injury_type.lower() or "achille" in injury_type.lower():
+            injury_score = 55
+        factors.append({"name": "Storico infortuni", "score": injury_score,
+                        "description": f"Post-infortunio: {injury_type}. Rischio sempre elevato in fase di ritorno."})
+        recommendations.append("Mantieni sempre una progressione graduale. Il tendine ha bisogno di mesi per adattarsi ai carichi.")
+    else:
+        injury_score = 10
+        factors.append({"name": "Storico infortuni", "score": injury_score,
+                        "description": "Nessun infortunio recente registrato."})
+
+    # 4. Intensity factor (avg HR of recent runs)
+    recent_runs_hr = [r for r in valid_runs if r.get("avg_hr") and r.get("date", "") >= (today - timedelta(days=14)).isoformat()]
+    intensity_score = 10
+    if recent_runs_hr:
+        avg_recent_hr = sum(r["avg_hr"] for r in recent_runs_hr) / len(recent_runs_hr)
+        hr_pct = avg_recent_hr / max_hr * 100
+        if hr_pct > 85:
+            intensity_score = 70
+            alerts.append({"level": "high", "message": f"FC media delle ultime 2 settimane al {round(hr_pct)}% della FCmax. Troppa intensità."})
+        elif hr_pct > 78:
+            intensity_score = 45
+        elif hr_pct > 70:
+            intensity_score = 25
+        factors.append({"name": "Intensità recente", "score": intensity_score,
+                        "description": f"FC media ultime 2 settimane: {round(avg_recent_hr)} bpm ({round(hr_pct)}% FCmax)."})
+    else:
+        factors.append({"name": "Intensità recente", "score": intensity_score,
+                        "description": "Dati FC insufficienti per valutare l'intensità."})
+
+    # 5. Recovery days
+    dates_last_14 = set()
+    for r in valid_runs:
+        if r.get("date", "") >= (today - timedelta(days=14)).isoformat():
+            dates_last_14.add(r["date"])
+    run_days = len(dates_last_14)
+    rest_days = 14 - run_days
+    recovery_score = 10
+    if rest_days < 3:
+        recovery_score = 65
+        alerts.append({"level": "medium", "message": f"Solo {rest_days} giorni di riposo negli ultimi 14. Serve più recupero."})
+        recommendations.append("Inserisci almeno 2 giorni di riposo completo a settimana.")
+    elif rest_days < 5:
+        recovery_score = 35
+    factors.append({"name": "Giorni di recupero", "score": recovery_score,
+                    "description": f"{rest_days} giorni di riposo negli ultimi 14 giorni ({run_days} giorni di corsa)."})
+
+    # ---- OVERALL SCORE ----
+    weights = [0.30, 0.25, 0.20, 0.15, 0.10]  # ACWR, overload, injury, intensity, recovery
+    scores = [acwr_score, overload_score, injury_score, intensity_score, recovery_score]
+    overall_score = round(sum(w * s for w, s in zip(weights, scores)))
+
+    # General recommendations
+    if overall_score <= 30:
+        recommendations.append("Il tuo carico è ben bilanciato. Continua così!")
+    elif overall_score <= 55:
+        recommendations.append("Carico moderato. Ascolta il tuo corpo e non saltare i giorni di recupero.")
+    else:
+        recommendations.append("Rischio elevato: considera una settimana di scarico con -30% di volume.")
+        recommendations.append("Priorità al sonno (8+ ore) e all'alimentazione per favorire il recupero.")
+
+    return {
+        "overall_score": overall_score,
+        "factors": factors,
+        "alerts": alerts,
+        "recommendations": recommendations,
+        "weekly_load_history": weekly_load,
+    }
+
+
 # Include router + middleware
 app.include_router(api_router)
 
