@@ -736,26 +736,26 @@ npx expo run:android
 
 ## 🔮 Prossimi Sviluppi
 
-- [ ] **EAS Updates (OTA)** — Configurare aggiornamenti over-the-air per pushare modifiche frontend senza rifare l'APK. `eas update` in 30 secondi invece di `eas build` in 10 minuti. **PRIORITA' ALTA.**
-- [ ] **Modalità offline** — Cache locale di piano/profilo per funzionare senza rete
-- [ ] **Countdown Fuerteventura** — Timer "Mancano X giorni alla gara" nella dashboard
-- [ ] **Notifiche push giornaliere** — Reminder mattutino con la sessione del giorno
-- [ ] **Note/sensazioni post-allenamento** — RPE 1-10 e note libere dopo ogni sessione
-- [ ] **Vista calendario mensile** — Piano visualizzato su calendario scrollabile
-- [ ] **Weather check pre-allenamento** — Meteo attuale nella sessione del giorno
-- [ ] **Export piano PDF** — Esportare il piano settimanale
-- [ ] **Widget Android** — Sessione di oggi nella home del telefono
+- [ ] **Splits analysis** — Analisi passo per ogni km con grafico (negative split vs positive split)
+- [ ] **Shoe tracker** — km per scarpa da Strava, alert a 600km per cambio
+- [ ] **Cadence trend** — Monitoraggio cadenza nel tempo (target 180 spm)
+- [ ] **Elevation gain tracking** — Dislivello settimanale (utile per Fuerteventura, terreno ondulato)
+- [ ] **Confronto diretto** — Sovrapporre due corse sulla stessa distanza per vedere il progresso
+- [ ] **AI Coach migliorato** — Analisi contestuale con trend, confronto ultime corse, suggerimenti fase-specifici (senza dipendere da API esterna)
 
-### Recentemente implementati
-- [x] **AI Coach con Claude** — Analisi corse con Claude (Anthropic), supporto corse extra fuori piano
+### Implementati
+- [x] **AI Coach con Claude** — Analisi corse con Claude (Anthropic) + fallback algoritmico avanzato
 - [x] **Notifiche push VO2max/soglia** — Notifica automatica quando il VO2max migliora dopo sync Strava
+- [x] **Notifiche push giornaliere** — Reminder mattutino con la sessione del giorno
 - [x] **Grafico andamento VO2max** — Line chart nella sezione Progressi con storia VDOT
 - [x] **Solo corse Strava** — Rimossi run seed fittizi, solo dati reali da Strava
 - [x] **Injury Risk Score** — Analisi predittiva infortunio con gauge, fattori, alert e raccomandazioni
 - [x] **Pace & Race Predictor** — Calcolatore VDOT, previsioni gara (Riegel), convertitore passo
 - [x] **VDOT Paces API** — Endpoint `/vdot/paces` con i 5 passi di Daniels calcolati dal VDOT reale
-- [x] **Logo MCorralejo** — Icona app ufficiale con runner stilizzato
+- [x] **EAS Updates (OTA)** — Aggiornamenti over-the-air configurati (`eas update` senza rebuild APK)
+- [x] **Logo MCorralejo** — Icona app con runner stilizzato + sfondo gradient (adaptive icon Android)
 - [x] **Nome app** — "Corralejo 2026" (era "frontend")
+- [x] **Weekly Report push** — Riepilogo settimanale automatico: km fatti vs target, aderenza %, VDOT
 
 ---
 
