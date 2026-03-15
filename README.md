@@ -51,7 +51,7 @@ Progettata per un runner in fase di ritorno post-infortunio con obiettivo tempo 
 | PyMongo | 4.5.0 | MongoDB driver |
 | Pydantic | 2.12.5 | Data validation |
 | httpx | 0.28.1 | HTTP client (Strava API) |
-| OpenAI | 1.99.9 | AI analysis (fallback) |
+| Anthropic | 0.52.0 | AI Coach (Claude API) |
 | python-dotenv | 1.2.1 | Env variables |
 
 ### Database
@@ -101,6 +101,7 @@ CORRALEJO-2026/
 │   │   ├── periodizzazione.tsx# Grafico periodizzazione
 │   │   ├── progressi.tsx      # Storico VO2max/soglia/previsioni
 │   │   ├── calcolatore.tsx    # Calcolatore passi e previsioni
+│   │   ├── injury-risk.tsx    # Injury Risk Score (analisi predittiva)
 │   │   └── strava-callback.tsx# OAuth callback Strava
 │   ├── src/
 │   │   ├── api.ts             # Client API (tutte le chiamate)
@@ -126,14 +127,14 @@ CORRALEJO-2026/
        ▼                                    ▼
 ┌──────────────┐                    ┌──────────────────┐
 │  Strava App  │                    │   Strava API v3  │
-│  (OAuth)     │                    │   OpenAI API     │
+│  (OAuth)     │                    │   Anthropic API     │
 └──────────────┘                    └──────────────────┘
 ```
 
 - **Frontend** → App React Native con Expo Router, 5 tab principali + schermate modali
 - **Backend** → Single-file FastAPI (`server.py`), async, tutte le route sotto `/api`
 - **Database** → MongoDB Atlas cluster gratuito, 6 collezioni
-- **AI** → OpenAI per analisi corse (con fallback a analisi algoritmica)
+- **AI** → Anthropic Claude per analisi corse (con fallback a analisi algoritmica)
 - **Strava** → OAuth 2.0 con deep linking per sync attività
 
 ---
@@ -154,6 +155,8 @@ https://corralejo-backend.onrender.com
 | `tests` | Test fisici programmati e completati |
 | `supplements` | Piano integratori |
 | `exercises` | Protocollo esercizi di rinforzo |
+| `vo2max_history` | Storico andamento VDOT nel tempo |
+| `adaptation_log` | Log decisioni auto-adattamento piano |
 
 ### Logica Principale nel Backend
 
@@ -319,7 +322,7 @@ Form per aggiungere risultati test:
 ### 8. 🔍 Dettaglio Corsa
 Analisi completa di una corsa:
 - Tutte le metriche (distanza, passo, durata, FC, tipo)
-- **Analisi AI** (generata da OpenAI o algoritmo interno):
+- **Analisi AI** (generata da Claude/Anthropic o algoritmo interno):
   - Confronto con sessione pianificata
   - Deviazione passo e distanza
   - Verdetto: perfetto / troppo intenso / troppo leggero
@@ -679,7 +682,7 @@ npx eas build --platform android --profile preview
 | `MONGO_URL` | Connection string MongoDB Atlas |
 | `DB_NAME` | Nome database (`corralejo`) |
 | `PYTHON_VERSION` | Versione Python (`3.11.11`) |
-| `OPENAI_API_KEY` | (Opzionale) API key OpenAI per analisi AI |
+| `ANTHROPIC_API_KEY` | API key Anthropic (Claude) per AI Coach |
 | `STRAVA_CLIENT_ID` | (Opzionale) Client ID app Strava |
 | `STRAVA_CLIENT_SECRET` | (Opzionale) Client Secret app Strava |
 
@@ -744,10 +747,15 @@ npx expo run:android
 - [ ] **Widget Android** — Sessione di oggi nella home del telefono
 
 ### Recentemente implementati
-- [x] **AI Coach con Claude** — Analisi corse con Claude (Anthropic) invece di OpenAI, supporto corse extra fuori piano
+- [x] **AI Coach con Claude** — Analisi corse con Claude (Anthropic), supporto corse extra fuori piano
 - [x] **Notifiche push VO2max/soglia** — Notifica automatica quando il VO2max migliora dopo sync Strava
 - [x] **Grafico andamento VO2max** — Line chart nella sezione Progressi con storia VDOT
 - [x] **Solo corse Strava** — Rimossi run seed fittizi, solo dati reali da Strava
+- [x] **Injury Risk Score** — Analisi predittiva infortunio con gauge, fattori, alert e raccomandazioni
+- [x] **Pace & Race Predictor** — Calcolatore VDOT, previsioni gara (Riegel), convertitore passo
+- [x] **VDOT Paces API** — Endpoint `/vdot/paces` con i 5 passi di Daniels calcolati dal VDOT reale
+- [x] **Logo MCorralejo** — Icona app ufficiale con runner stilizzato
+- [x] **Nome app** — "Corralejo 2026" (era "frontend")
 
 ---
 
