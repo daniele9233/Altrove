@@ -584,6 +584,81 @@ export default function ProgressiScreen() {
           </View>
         )}
 
+        {/* HR Zone Distribution (Seiler 2010) */}
+        {analytics.hr_zone_distribution && analytics.hr_zone_distribution.total_runs_with_hr >= 3 && (() => {
+          const zd = analytics.hr_zone_distribution;
+          const zones = [
+            { key: 'z1_pct', label: 'Z1', sublabel: 'Recovery', color: '#3b82f6', pct: zd.z1_pct },
+            { key: 'z2_pct', label: 'Z2', sublabel: 'Easy', color: '#22c55e', pct: zd.z2_pct },
+            { key: 'z3_pct', label: 'Z3', sublabel: 'Tempo', color: '#facc15', pct: zd.z3_pct },
+            { key: 'z4_pct', label: 'Z4', sublabel: 'VO2max', color: '#f97316', pct: zd.z4_pct },
+            { key: 'z5_pct', label: 'Z5', sublabel: 'Sprint', color: '#ef4444', pct: zd.z5_pct },
+          ];
+          const polScore = zd.polarization_score;
+          const polColor = polScore >= 80 ? COLORS.green : polScore >= 70 ? COLORS.orange : COLORS.red;
+          const maxPct = Math.max(...zones.map(z => z.pct), 1);
+
+          return (
+            <View style={styles.sectionCard}>
+              <View style={styles.sectionHeader}>
+                <Ionicons name="heart" size={20} color="#ef4444" />
+                <Text style={styles.sectionTitle}>DISTRIBUZIONE ZONE HR</Text>
+              </View>
+              <Text style={styles.predBasedOn}>
+                Ultime 4 settimane ({zd.total_runs_with_hr} corse) — target: 80% Z1-Z2 (Seiler 2010)
+              </Text>
+
+              {/* Zone bars */}
+              <View style={{ marginTop: SPACING.md, gap: SPACING.sm }}>
+                {zones.map(z => (
+                  <View key={z.key} style={{ flexDirection: 'row', alignItems: 'center', gap: SPACING.sm }}>
+                    <View style={{ width: 28, alignItems: 'center' }}>
+                      <Text style={{ fontSize: FONT_SIZES.xs, color: z.color, fontWeight: '800' }}>{z.label}</Text>
+                    </View>
+                    <View style={{ flex: 1, height: 22, backgroundColor: COLORS.bg, borderRadius: 6, overflow: 'hidden' }}>
+                      <View style={{
+                        height: 22,
+                        width: `${Math.max(2, (z.pct / maxPct) * 100)}%`,
+                        backgroundColor: z.color + '40',
+                        borderRadius: 6,
+                        justifyContent: 'center',
+                        paddingLeft: 6,
+                      }}>
+                        {z.pct >= 5 && (
+                          <Text style={{ fontSize: 10, color: z.color, fontWeight: '800' }}>{z.pct}%</Text>
+                        )}
+                      </View>
+                    </View>
+                    {z.pct < 5 && (
+                      <Text style={{ fontSize: 10, color: z.color, fontWeight: '800', width: 30 }}>{z.pct}%</Text>
+                    )}
+                    <Text style={{ fontSize: 9, color: COLORS.textMuted, width: 48 }}>{z.sublabel}</Text>
+                  </View>
+                ))}
+              </View>
+
+              {/* Polarization score */}
+              <View style={{
+                flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+                marginTop: SPACING.lg, gap: SPACING.sm,
+                backgroundColor: polColor + '10', borderRadius: BORDER_RADIUS.md, padding: SPACING.md,
+              }}>
+                <Text style={{ fontSize: FONT_SIZES.body, color: polColor, fontWeight: '900' }}>
+                  Polarizzazione: {polScore}%
+                </Text>
+                {zd.is_polarized && (
+                  <View style={{ backgroundColor: COLORS.green + '20', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 8 }}>
+                    <Text style={{ fontSize: 10, color: COLORS.green, fontWeight: '800' }}>80/20 OK</Text>
+                  </View>
+                )}
+              </View>
+              <Text style={{ fontSize: 9, color: COLORS.textMuted, textAlign: 'center', marginTop: SPACING.xs, fontStyle: 'italic' }}>
+                Z1+Z2 = allenamento facile • Z4+Z5 = alta intensità • Seiler: ≥80% facile
+              </Text>
+            </View>
+          );
+        })()}
+
         {/* Race Predictions */}
         <View style={styles.sectionCard}>
           <View style={styles.sectionHeader}>

@@ -451,6 +451,114 @@ export default function RunDetailScreen() {
           );
         })()}
 
+        {/* Cardiac Decoupling (Pa:Hr) - Friel */}
+        {run.splits && run.splits.length >= 4 && (() => {
+          // Check splits have HR data
+          const splitsWithHr = run.splits.filter(s => s.hr && s.hr > 0 && paceToSeconds(s.pace) > 0);
+          if (splitsWithHr.length < 4) return null;
+
+          // Calculate pace coefficient of variation
+          const paces = splitsWithHr.map(s => paceToSeconds(s.pace));
+          const avgPace = paces.reduce((a, b) => a + b, 0) / paces.length;
+          const paceStdDev = Math.sqrt(paces.reduce((sum, p) => sum + Math.pow(p - avgPace, 2), 0) / paces.length);
+          const paceCv = (paceStdDev / avgPace) * 100;
+
+          // Need constant pace (CV < 10%) for valid decoupling
+          const isConstantPace = paceCv < 10;
+
+          if (!isConstantPace) {
+            return (
+              <View style={styles.decouplingCard}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: SPACING.sm, marginBottom: SPACING.sm }}>
+                  <Ionicons name="pulse" size={18} color={COLORS.textMuted} />
+                  <Text style={styles.hrTitle}>DECOUPLING CARDIACO</Text>
+                </View>
+                <Text style={{ fontSize: FONT_SIZES.xs, color: COLORS.textMuted, fontStyle: 'italic' }}>
+                  Passo non costante (CV {paceCv.toFixed(1)}%) — decoupling non calcolabile.
+                  Serve una corsa a passo uniforme (easy/lungo/tempo).
+                </Text>
+              </View>
+            );
+          }
+
+          // Split into halves
+          const halfIdx = Math.floor(splitsWithHr.length / 2);
+          const firstHalf = splitsWithHr.slice(0, halfIdx);
+          const secondHalf = splitsWithHr.slice(halfIdx);
+
+          const avgHrFirst = firstHalf.reduce((sum, s) => sum + (s.hr || 0), 0) / firstHalf.length;
+          const avgHrSecond = secondHalf.reduce((sum, s) => sum + (s.hr || 0), 0) / secondHalf.length;
+          const avgPaceFirst = firstHalf.reduce((sum, s) => sum + paceToSeconds(s.pace), 0) / firstHalf.length;
+          const avgPaceSecond = secondHalf.reduce((sum, s) => sum + paceToSeconds(s.pace), 0) / secondHalf.length;
+
+          const decoupling = ((avgHrSecond - avgHrFirst) / avgHrFirst) * 100;
+
+          const getDecouplingColor = (d: number) => {
+            if (d < 3.5) return COLORS.green;
+            if (d < 5) return COLORS.orange;
+            return COLORS.red;
+          };
+
+          const getDecouplingLabel = (d: number) => {
+            if (d < 3.5) return 'Eccellente';
+            if (d < 5) return 'Accettabile';
+            if (d < 7.5) return 'Drift significativo';
+            return 'Drift eccessivo';
+          };
+
+          const dc = Math.abs(decoupling);
+          const dcColor = getDecouplingColor(dc);
+          const formatPaceSecs = (s: number) => `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, '0')}`;
+
+          return (
+            <View style={styles.decouplingCard}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: SPACING.sm, marginBottom: SPACING.md }}>
+                <Ionicons name="pulse" size={18} color={dcColor} />
+                <Text style={styles.hrTitle}>DECOUPLING CARDIACO</Text>
+                <View style={{ marginLeft: 'auto', backgroundColor: dcColor + '20', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 8 }}>
+                  <Text style={{ fontSize: FONT_SIZES.xs, color: dcColor, fontWeight: '800' }}>
+                    {getDecouplingLabel(dc)}
+                  </Text>
+                </View>
+              </View>
+
+              {/* Big decoupling value */}
+              <View style={{ alignItems: 'center', marginBottom: SPACING.md }}>
+                <Text style={{ fontSize: 36, fontWeight: '900', color: dcColor }}>
+                  {decoupling > 0 ? '+' : ''}{decoupling.toFixed(1)}%
+                </Text>
+                <Text style={{ fontSize: FONT_SIZES.xs, color: COLORS.textMuted, marginTop: 2 }}>
+                  drift FC (Pa:Hr — Friel)
+                </Text>
+              </View>
+
+              {/* First vs Second half comparison */}
+              <View style={{ flexDirection: 'row', gap: SPACING.md }}>
+                <View style={{ flex: 1, backgroundColor: COLORS.bg, borderRadius: BORDER_RADIUS.md, padding: SPACING.md, alignItems: 'center' }}>
+                  <Text style={{ fontSize: 9, color: COLORS.textMuted, fontWeight: '700', letterSpacing: 1, marginBottom: SPACING.xs }}>1ª METÀ</Text>
+                  <Text style={{ fontSize: FONT_SIZES.lg, color: COLORS.text, fontWeight: '800' }}>{Math.round(avgHrFirst)} bpm</Text>
+                  <Text style={{ fontSize: FONT_SIZES.xs, color: COLORS.textSecondary }}>{formatPaceSecs(avgPaceFirst)}/km</Text>
+                  <Text style={{ fontSize: 9, color: COLORS.textMuted }}>km 1-{halfIdx}</Text>
+                </View>
+                <View style={{ flex: 1, backgroundColor: COLORS.bg, borderRadius: BORDER_RADIUS.md, padding: SPACING.md, alignItems: 'center' }}>
+                  <Text style={{ fontSize: 9, color: COLORS.textMuted, fontWeight: '700', letterSpacing: 1, marginBottom: SPACING.xs }}>2ª METÀ</Text>
+                  <Text style={{ fontSize: FONT_SIZES.lg, color: dcColor, fontWeight: '800' }}>{Math.round(avgHrSecond)} bpm</Text>
+                  <Text style={{ fontSize: FONT_SIZES.xs, color: COLORS.textSecondary }}>{formatPaceSecs(avgPaceSecond)}/km</Text>
+                  <Text style={{ fontSize: 9, color: COLORS.textMuted }}>km {halfIdx + 1}-{splitsWithHr.length}</Text>
+                </View>
+              </View>
+
+              {/* Explanation */}
+              <Text style={{ fontSize: 9, color: COLORS.textMuted, marginTop: SPACING.md, fontStyle: 'italic', textAlign: 'center' }}>
+                {'<'}3.5% = aerobicamente efficiente • 3.5-5% = accettabile • {'>'}5% = efficienza da migliorare
+              </Text>
+              <Text style={{ fontSize: 9, color: COLORS.textMuted, marginTop: 2, textAlign: 'center' }}>
+                Variazione passo: CV {paceCv.toFixed(1)}% (costante)
+              </Text>
+            </View>
+          );
+        })()}
+
         {/* Cadence + Elevation row */}
         {(run.avg_cadence || run.elevation_gain) && (
           <View style={styles.extraStatsCard}>
@@ -874,6 +982,11 @@ const styles = StyleSheet.create({
     padding: SPACING.xl,
     borderWidth: 1,
     borderColor: COLORS.cardBorder,
+  },
+  decouplingCard: {
+    marginHorizontal: SPACING.lg, marginBottom: SPACING.lg,
+    backgroundColor: COLORS.card, borderRadius: BORDER_RADIUS.lg,
+    padding: SPACING.lg, borderWidth: 1, borderColor: COLORS.cardBorder,
   },
   splitRow: {
     flexDirection: 'row',

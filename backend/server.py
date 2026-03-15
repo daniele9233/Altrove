@@ -1745,6 +1745,37 @@ async def get_analytics():
             "bpm_max": zdef["bpm_max"],
         })
 
+    # ---- HR ZONE DISTRIBUTION (last 4 weeks, Seiler 2010) ----
+    four_weeks_ago_date = (date.today() - timedelta(days=28)).isoformat()
+    recent_hr_runs = [r for r in valid_runs if r.get("avg_hr") and r.get("date", "") >= four_weeks_ago_date]
+
+    hr_zone_counts_4w = {"z1": 0, "z2": 0, "z3": 0, "z4": 0, "z5": 0}
+    for r in recent_hr_runs:
+        avg_hr = r["avg_hr"]
+        hr_pct = (avg_hr / user_max_hr) * 100
+        if hr_pct < 70:
+            hr_zone_counts_4w["z1"] += 1
+        elif hr_pct < 80:
+            hr_zone_counts_4w["z2"] += 1
+        elif hr_pct < 87:
+            hr_zone_counts_4w["z3"] += 1
+        elif hr_pct < 93:
+            hr_zone_counts_4w["z4"] += 1
+        else:
+            hr_zone_counts_4w["z5"] += 1
+
+    total_4w_hr = len(recent_hr_runs)
+    hr_zone_distribution = {
+        "z1_pct": round((hr_zone_counts_4w["z1"] / max(total_4w_hr, 1)) * 100),
+        "z2_pct": round((hr_zone_counts_4w["z2"] / max(total_4w_hr, 1)) * 100),
+        "z3_pct": round((hr_zone_counts_4w["z3"] / max(total_4w_hr, 1)) * 100),
+        "z4_pct": round((hr_zone_counts_4w["z4"] / max(total_4w_hr, 1)) * 100),
+        "z5_pct": round((hr_zone_counts_4w["z5"] / max(total_4w_hr, 1)) * 100),
+        "total_runs_with_hr": total_4w_hr,
+        "polarization_score": round(((hr_zone_counts_4w["z1"] + hr_zone_counts_4w["z2"]) / max(total_4w_hr, 1)) * 100),
+        "is_polarized": round(((hr_zone_counts_4w["z1"] + hr_zone_counts_4w["z2"]) / max(total_4w_hr, 1)) * 100) >= 80,
+    }
+
     # ---- ANAEROBIC THRESHOLD ESTIMATE (Current and Pre-Injury) ----
     # AT typically at ~85-88% of max HR
     # Pre-injury data: November 21, 2025 - 6km test at 4:20/km with HR 149 avg
@@ -1937,6 +1968,7 @@ async def get_analytics():
         "current_hm_pred_str": race_predictions.get("21.1km", {}).get("predicted_time_str", "N/D"),
         "weekly_volume": weekly_volume,
         "zone_distribution": zone_distribution,
+        "hr_zone_distribution": hr_zone_distribution,
         "anaerobic_threshold": {
             "current": current_at,
             "pre_injury": pre_injury_at,
