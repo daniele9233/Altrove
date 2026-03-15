@@ -421,7 +421,7 @@ export default function ProgressiScreen() {
             const stepX = vo2ChartW / Math.max(points.length - 1, 1);
 
             const toY = (v: number) => vo2ChartH - ((v - minV) / rangeV) * vo2ChartH;
-            const fmtDate = (d: string) => { try { const p = d.split('-'); return `${p[2]}/${p[1]}`; } catch { return d; } };
+            const fmtDate = (d: string) => { try { const p = d.split('-'); return `${p[2]}/${p[1]}/${p[0].slice(2)}`; } catch { return d; } };
 
             return (
               <View style={{ marginTop: SPACING.lg }}>
@@ -625,31 +625,48 @@ export default function ProgressiScreen() {
           </View>
         </View>
 
-        {/* Best Efforts */}
-        {best_efforts && (
+        {/* Best Efforts - Medals */}
+        {best_efforts && Object.keys(best_efforts).length > 0 && (
           <View style={styles.sectionCard}>
             <View style={styles.sectionHeader}>
-              <Ionicons name="medal" size={20} color="#fbbf24" />
-              <Text style={styles.sectionTitle}>MIGLIORI PRESTAZIONI</Text>
+              <Ionicons name="trophy" size={20} color="#fbbf24" />
+              <Text style={styles.sectionTitle}>BEST EFFORTS</Text>
             </View>
-            {Object.entries(best_efforts).map(([dist, effort]: [string, any]) => (
-              <View key={dist} style={styles.effortRow}>
-                <Text style={styles.effortDist}>{dist}</Text>
-                <View style={styles.effortData}>
-                  <Text style={styles.effortPace}>{effort.pace}/km</Text>
-                  <Text style={styles.effortTime}>
-                    {effort.time < 60
-                      ? `${Math.floor(effort.time)}:${Math.round((effort.time % 1) * 60).toString().padStart(2, '0')}`
-                      : `${Math.floor(effort.time / 60)}h${Math.round(effort.time % 60)}m`
-                    }
-                  </Text>
+            <Text style={styles.predBasedOn}>I tuoi record personali dal 2026</Text>
+            {Object.entries(best_efforts).map(([dist, effort]: [string, any], idx: number) => {
+              const medalColors = ['#FFD700', '#C0C0C0', '#CD7F32'];
+              const medalColor = idx < 3 ? medalColors[idx] : COLORS.textMuted;
+              return (
+                <View key={dist} style={[styles.effortRow, { gap: SPACING.sm }]}>
+                  <View style={{
+                    width: 36, height: 36, borderRadius: 18,
+                    backgroundColor: medalColor + '20',
+                    borderWidth: 2, borderColor: medalColor,
+                    alignItems: 'center', justifyContent: 'center',
+                  }}>
+                    <Text style={{ fontSize: 14 }}>
+                      {idx === 0 ? '🥇' : idx === 1 ? '🥈' : idx === 2 ? '🥉' : '🏅'}
+                    </Text>
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={[styles.effortDist, { width: 'auto' }]}>{dist}</Text>
+                    <Text style={{ fontSize: 10, color: COLORS.textMuted, marginTop: 2 }}>{effort.date}</Text>
+                  </View>
+                  <View style={{ alignItems: 'flex-end' }}>
+                    <Text style={styles.effortPace}>{effort.pace}/km</Text>
+                    <Text style={styles.effortTime}>
+                      {effort.time < 60
+                        ? `${Math.floor(effort.time)}:${Math.round((effort.time % 1) * 60).toString().padStart(2, '0')}`
+                        : `${Math.floor(effort.time / 60)}h${Math.round(effort.time % 60)}m`
+                      }
+                    </Text>
+                    {effort.avg_hr > 0 && (
+                      <Text style={styles.effortHr}>{effort.avg_hr} bpm</Text>
+                    )}
+                  </View>
                 </View>
-                <View style={styles.effortMeta}>
-                  <Text style={styles.effortHr}>{effort.avg_hr} bpm</Text>
-                  <Text style={styles.effortDate}>{effort.date}</Text>
-                </View>
-              </View>
-            ))}
+              );
+            })}
           </View>
         )}
 

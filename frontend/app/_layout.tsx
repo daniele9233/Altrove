@@ -118,11 +118,33 @@ async function checkForOTAUpdate() {
   }
 }
 
+async function autoSyncStrava() {
+  try {
+    // Check if Strava is connected first
+    const profile = await api.getStravaProfile();
+    if (profile?.athlete) {
+      // Strava is connected — sync in background
+      console.log('Auto-sync Strava: avvio...');
+      const result = await api.syncStrava();
+      if (result?.synced > 0) {
+        console.log(`Auto-sync Strava: ${result.synced} nuove corse importate`);
+      } else {
+        console.log('Auto-sync Strava: nessuna nuova corsa');
+      }
+    }
+  } catch (e) {
+    // Silently fail — don't block app startup
+    console.log('Auto-sync Strava skipped:', e);
+  }
+}
+
 export default function RootLayout() {
   useEffect(() => {
     registerForPushNotifications();
     scheduleDailyReminder();
     checkForOTAUpdate();
+    // Auto-sync Strava all'avvio (non blocca l'app)
+    autoSyncStrava();
   }, []);
 
   return (

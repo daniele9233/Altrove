@@ -748,15 +748,24 @@ npx expo run:android
 - [ ] **Shoe tracker** — km per scarpa da Strava, alert a 600km per cambio
 - [ ] **Elevation gain tracking** — Dislivello settimanale (utile per Fuerteventura, terreno ondulato)
 - [ ] **Confronto diretto** — Sovrapporre due corse sulla stessa distanza per vedere il progresso
+- [ ] **Decoupling cardiaco (Pa:Hr)** — Confronto pace/HR prima vs seconda metà corsa (Friel)
+- [ ] **Distribuzione zone HR** — Grafico a torta % tempo in Z1-Z5, verifica training polarizzato
+- [ ] **Heatmap settimane** — Calendario stile GitHub con colori per km/giorno
+- [ ] **Race Pace Simulator** — Previsione HR a un dato passo gara basata sui dati reali
+- [ ] **Negative Split Planner** — Piano gara km per km con strategia pacing
+- [ ] **Garmin Connect** — HR a riposo, HRV, Body Battery, qualità sonno
+- [ ] **Meteo pre-corsa** — Aggiustamento paci target in base a temperatura e umidità
 
 ### Implementati
-- [x] **AI Coach con Gemini** — Analisi corse con Google Gemini (gratuito) + fallback algoritmico avanzato
+- [x] **Auto-sync Strava** — Sincronizzazione automatica all'apertura app (grafici sempre aggiornati)
+- [x] **AI Coach "Renato Canova"** — Analisi corse con Google Gemini come allenatore di fama mondiale, tono naturale, mai template, calcola settimane alla gara, conosce profilo atleta
+- [x] **Best Efforts con medaglie** — 🥇🥈🥉 per i record personali con push notification su nuovo PR
+- [x] **auto_adapt_plan() scientifico** — 5 modelli peer-reviewed: Impellizzeri 2020 (no ACWR), ACSM 10%, Foster monotonia, Seiler polarizzazione, Mujika tapering
 - [x] **Splits per km** — Visualizzazione passo per ogni km con barre colorate (negative/positive split)
 - [x] **Cadence trend** — Grafico andamento cadenza mensile con target 180 spm
-- [x] **Best Efforts + Push PR** — Migliori prestazioni per distanza (400m, 1k, 1mi, 5k, 10k, HM) con push notification automatica su nuovo record personale
 - [x] **Notifiche push VO2max/soglia** — Notifica automatica quando il VO2max migliora dopo sync Strava
 - [x] **Notifiche push giornaliere** — Reminder mattutino con la sessione del giorno
-- [x] **Grafico andamento VO2max** — Line chart nella sezione Progressi con storia VDOT
+- [x] **Grafico andamento VO2max** — Line chart nella sezione Progressi con storia VDOT (con anno)
 - [x] **Solo corse Strava** — Rimossi run seed fittizi, solo dati reali da Strava
 - [x] **Injury Risk Score** — Analisi predittiva infortunio con gauge, fattori, alert e raccomandazioni
 - [x] **Pace & Race Predictor** — Calcolatore VDOT, previsioni gara (Riegel), convertitore passo
