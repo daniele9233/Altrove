@@ -753,7 +753,7 @@ npx expo run:android
 - [x] **AI Coach con Gemini** — Analisi corse con Google Gemini (gratuito) + fallback algoritmico avanzato
 - [x] **Splits per km** — Visualizzazione passo per ogni km con barre colorate (negative/positive split)
 - [x] **Cadence trend** — Grafico andamento cadenza mensile con target 180 spm
-- [x] **Best Efforts** — Migliori prestazioni per distanza con passo, tempo e FC
+- [x] **Best Efforts + Push PR** — Migliori prestazioni per distanza (400m, 1k, 1mi, 5k, 10k, HM) con push notification automatica su nuovo record personale
 - [x] **Notifiche push VO2max/soglia** — Notifica automatica quando il VO2max migliora dopo sync Strava
 - [x] **Notifiche push giornaliere** — Reminder mattutino con la sessione del giorno
 - [x] **Grafico andamento VO2max** — Line chart nella sezione Progressi con storia VDOT
