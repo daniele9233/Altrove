@@ -31,6 +31,11 @@ async function registerForPushNotifications() {
       name: 'default',
       importance: Notifications.AndroidImportance.MAX,
     });
+    await Notifications.setNotificationChannelAsync('daily-reminder', {
+      name: 'Reminder giornaliero',
+      importance: Notifications.AndroidImportance.HIGH,
+      sound: 'default',
+    });
   }
 
   const pushToken = await Notifications.getExpoPushTokenAsync({
@@ -40,6 +45,59 @@ async function registerForPushNotifications() {
     await api.registerPushToken(pushToken.data);
   } catch (e) {
     console.log('Push token registration failed:', e);
+  }
+}
+
+async function scheduleDailyReminder() {
+  try {
+    // Cancel existing daily reminders to avoid duplicates
+    const existing = await Notifications.getAllScheduledNotificationsAsync();
+    for (const notif of existing) {
+      if (notif.content.data?.type === 'daily-reminder') {
+        await Notifications.cancelScheduledNotificationAsync(notif.identifier);
+      }
+    }
+
+    // Fetch today's session from the API
+    let title = 'Buongiorno! Sessione di oggi';
+    let body = 'Apri l\'app per vedere il tuo allenamento';
+    try {
+      const dashboard = await api.getDashboard();
+      const todaySession = dashboard?.today_session;
+      if (todaySession) {
+        const sessionType = todaySession.type || '';
+        const sessionTitle = todaySession.title || todaySession.type || 'Allenamento';
+        const distance = todaySession.target_distance_km ? `${todaySession.target_distance_km}km` : '';
+        const pace = todaySession.target_pace ? `@ ${todaySession.target_pace}/km` : '';
+
+        if (sessionType === 'riposo') {
+          title = 'Giorno di riposo';
+          body = 'Recupera le energie per la prossima sessione';
+        } else {
+          title = `Oggi: ${sessionTitle}`;
+          body = [distance, pace].filter(Boolean).join(' ') || 'Apri l\'app per i dettagli';
+        }
+      }
+    } catch (e) {
+      // Use default message if API fails
+    }
+
+    // Schedule daily at 7:00 AM
+    await Notifications.scheduleNotificationAsync({
+      content: {
+        title,
+        body,
+        data: { type: 'daily-reminder' },
+        ...(Platform.OS === 'android' ? { channelId: 'daily-reminder' } : {}),
+      },
+      trigger: {
+        type: Notifications.SchedulableTriggerInputTypes.DAILY,
+        hour: 7,
+        minute: 0,
+      },
+    });
+  } catch (e) {
+    console.log('Daily reminder scheduling failed:', e);
   }
 }
 
@@ -63,6 +121,7 @@ async function checkForOTAUpdate() {
 export default function RootLayout() {
   useEffect(() => {
     registerForPushNotifications();
+    scheduleDailyReminder();
     checkForOTAUpdate();
   }, []);
 

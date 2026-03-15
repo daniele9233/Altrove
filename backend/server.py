@@ -3574,16 +3574,42 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+@app.get("/health")
+async def health_check():
+    """Health check endpoint — also used by keep-alive pinger."""
+    return {"status": "ok", "timestamp": datetime.now(timezone.utc).isoformat()}
+
+
+_keep_alive_task = None
+
+async def _keep_alive_pinger():
+    """Self-ping every 14 minutes to prevent Render free tier from sleeping.
+    Render sleeps after 15 min inactivity — this keeps the server warm."""
+    import httpx
+    backend_url = os.environ.get("RENDER_EXTERNAL_URL", "https://corralejo-backend.onrender.com")
+    while True:
+        await asyncio.sleep(14 * 60)  # 14 minutes
+        try:
+            async with httpx.AsyncClient(timeout=30) as client_http:
+                resp = await client_http.get(f"{backend_url}/health")
+                logger.info(f"Keep-alive ping: {resp.status_code}")
+        except Exception as e:
+            logger.warning(f"Keep-alive ping failed: {e}")
+
+
 @app.on_event("startup")
 async def startup_scheduler():
-    global _weekly_report_task
+    global _weekly_report_task, _keep_alive_task
     _weekly_report_task = asyncio.create_task(_weekly_report_scheduler())
-    logger.info("Weekly report scheduler started")
+    _keep_alive_task = asyncio.create_task(_keep_alive_pinger())
+    logger.info("Weekly report scheduler and keep-alive pinger started")
 
 
 @app.on_event("shutdown")
 async def shutdown_db_client():
-    global _weekly_report_task
+    global _weekly_report_task, _keep_alive_task
     if _weekly_report_task:
         _weekly_report_task.cancel()
+    if _keep_alive_task:
+        _keep_alive_task.cancel()
     client.close()
