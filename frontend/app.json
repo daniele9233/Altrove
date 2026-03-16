@@ -10,7 +10,7 @@
     "newArchEnabled": true,
     "runtimeVersion": "1.0.0",
     "updates": {
-      "url": "https://u.expo.dev/b6eee442-2a97-4b31-803f-21db08504ca3",
+      "url": "https://u.expo.dev/a48df678-6b21-4c17-9033-76216bd17940",
       "enabled": true,
       "checkAutomatically": "ON_LOAD",
       "fallbackToCacheTimeout": 5000
@@ -48,8 +48,10 @@
     },
     "extra": {
       "eas": {
-        "projectId": "b6eee442-2a97-4b31-803f-21db08504ca3"
-      }
-    }
+        "projectId": "a48df678-6b21-4c17-9033-76216bd17940"
+      },
+      "router": {}
+    },
+    "owner": "daniele9233"
   }
 }

@@ -110,181 +110,166 @@ def _pace_to_seconds(pace_str: str) -> int:
         return 0
 
 def _generate_enhanced_analysis(run, planned_session, planned_week, profile=None, vdot=None, vdot_paces=None, recent_runs=None):
-    """Generate a detailed coach-style analysis without AI."""
-    lines = []
+    """Generate a coach-style analysis without AI — natural, varied, no template feel."""
+    import random
+    import hashlib
+
     run_type = run.get('run_type', 'unknown')
     dist = run.get('distance_km', 0) or 0
     pace = run.get('avg_pace', '')
     avg_hr = run.get('avg_hr', 0) or 0
-    max_hr = run.get('max_hr', 0) or 0
+    max_hr_val = run.get('max_hr', 0) or 0
     duration = run.get('duration_minutes', 0) or 0
     max_hr_profile = profile.get('max_hr', 180) if profile else 180
-
-    # Calculate HR percentages
     hr_pct = round(avg_hr / max_hr_profile * 100) if avg_hr and max_hr_profile else 0
-    max_hr_pct = round(max_hr / max_hr_profile * 100) if max_hr and max_hr_profile else 0
+    run_date = run.get('date', '')
 
-    # Determine HR zone
-    hr_zone = "N/D"
-    if avg_hr:
-        if avg_hr <= 117: hr_zone = "Z1 (Recupero)"
-        elif avg_hr <= 146: hr_zone = "Z2 (Resistenza)"
-        elif avg_hr <= 160: hr_zone = "Z3 (Ritmo)"
-        elif avg_hr <= 175: hr_zone = "Z4 (Soglia)"
-        else: hr_zone = "Z5 (Anaerobico)"
+    # Use run data as seed for consistent but varied responses
+    seed_str = f"{run_date}-{dist}-{pace}-{avg_hr}"
+    seed = int(hashlib.md5(seed_str.encode()).hexdigest()[:8], 16)
+    rng = random.Random(seed)
+
+    a_secs = _pace_to_seconds(pace)
+
+    # Get VDOT reference paces
+    easy_secs = _pace_to_seconds(vdot_paces.get('easy', '')) if vdot_paces else 0
+    tempo_secs = _pace_to_seconds(vdot_paces.get('threshold', '')) if vdot_paces else 0
+    interval_secs = _pace_to_seconds(vdot_paces.get('interval', '')) if vdot_paces else 0
+    marathon_secs = _pace_to_seconds(vdot_paces.get('marathon', '')) if vdot_paces else 0
+
+    # Determine what kind of effort this was based on pace/HR
+    effort_type = "easy"
+    if a_secs > 0:
+        if easy_secs > 0 and a_secs >= easy_secs - 10:
+            effort_type = "easy"
+        elif marathon_secs > 0 and a_secs >= marathon_secs - 10:
+            effort_type = "moderate"
+        elif tempo_secs > 0 and a_secs >= tempo_secs - 15:
+            effort_type = "tempo"
+        elif interval_secs > 0 and a_secs <= interval_secs + 15:
+            effort_type = "fast"
+        else:
+            effort_type = "moderate"
+
+    # HR assessment
+    hr_too_high_for_easy = avg_hr and hr_pct > 82 and effort_type == "easy"
+    hr_appropriate = avg_hr and ((effort_type == "easy" and hr_pct <= 82) or
+                                  (effort_type == "tempo" and 82 <= hr_pct <= 92) or
+                                  (effort_type == "fast" and hr_pct >= 85))
+
+    # Calculate weeks to race
+    from datetime import date as date_cls
+    try:
+        race_date = date_cls(2026, 12, 12)
+        today = date_cls.today()
+        weeks_to_race = max(0, (race_date - today).days // 7)
+    except:
+        weeks_to_race = 0
+
+    parts = []
+
+    # ---- VARIED OPENINGS ----
+    openings_good = [
+        f"Bene, {dist}km a {pace}/km.",
+        f"Vediamo questa corsa: {dist} chilometri in {round(duration)} minuti.",
+        f"Ok, {round(duration)} minuti a {pace} di media.",
+        f"{dist}km fatti. Passo medio {pace}/km.",
+    ]
+    openings_concern = [
+        f"Guardiamo questi numeri: {dist}km a {pace}/km.",
+        f"Hmm, {dist}km a {pace}/km — analizziamo.",
+        f"Questa corsa merita attenzione: {dist}km, passo {pace}/km.",
+    ]
 
     if planned_session:
-        # ===== CORSA PIANIFICATA =====
-        planned_type = planned_session.get('type', '')
         target_dist = planned_session.get('target_distance_km', 0) or 0
         target_pace = planned_session.get('target_pace', '')
-
-        lines.append("📊 **VERDETTO:** ")
-
-        # Distance check
-        dist_ok = True
-        if target_dist > 0 and dist > 0:
-            dist_diff_pct = round((dist - target_dist) / target_dist * 100, 1)
-            if abs(dist_diff_pct) <= 15:
-                dist_ok = True
-            else:
-                dist_ok = False
-
-        # Pace check
-        pace_ok = True
+        planned_type = planned_session.get('type', '')
         t_secs = _pace_to_seconds(target_pace)
-        a_secs = _pace_to_seconds(pace)
-        pace_diff = 0
-        if t_secs > 0 and a_secs > 0:
-            pace_diff = a_secs - t_secs
-            if abs(pace_diff) <= 15:
-                pace_ok = True
+        pace_diff = (a_secs - t_secs) if (a_secs > 0 and t_secs > 0) else 0
+
+        # Assess how the run went vs plan
+        on_target = abs(pace_diff) <= 15 and (not target_dist or abs(dist - target_dist) / max(target_dist, 1) <= 0.15)
+        too_fast = pace_diff < -15
+        too_slow = pace_diff > 15
+
+        if on_target:
+            parts.append(rng.choice(openings_good))
+            parts.append(f"La sessione prevedeva {planned_type} di {target_dist}km a {target_pace}/km e tu hai fatto esattamente quello che dovevi.")
+            if hr_appropriate:
+                parts.append(f"La frequenza cardiaca a {avg_hr}bpm ({hr_pct}% della massima) è coerente con lo sforzo richiesto.")
+            elif hr_too_high_for_easy:
+                parts.append(f"Unico appunto: la FC a {avg_hr}bpm è alta per un {planned_type}. Dovrebbe stare sotto il 80% della massima, sei al {hr_pct}%. Prova a rallentare di 10-15 secondi al km la prossima volta.")
+        elif too_fast:
+            parts.append(rng.choice(openings_concern))
+            parts.append(f"Dovevi correre a {target_pace}/km e invece sei andato a {pace}/km — {abs(pace_diff)} secondi più veloce. ")
+            if planned_type in ('corsa_lenta', 'easy', 'lungo', 'recupero'):
+                parts.append("Nelle corse facili la velocità non conta, conta tenere la FC bassa e accumulare volume aerobico. Se spingi troppo nei lenti, arrivi stanco alle sedute di qualità che sono quelle che ti fanno migliorare davvero.")
             else:
-                pace_ok = False
+                parts.append("Correre più forte del previsto non è sempre meglio. Se il piano dice soglia a un certo passo, quel passo è calibrato sul tuo VDOT attuale. Andare oltre rischia di compromettere il recupero per le sessioni successive.")
+        elif too_slow:
+            parts.append(rng.choice(openings_concern))
+            parts.append(f"Il target era {target_pace}/km, hai corso a {pace}/km — {abs(pace_diff)} secondi più lento.")
+            if planned_type in ('tempo', 'soglia', 'threshold', 'interval', 'ripetute'):
+                parts.append("Per le sedute di qualità devi cercare di stare sul passo previsto, altrimenti non stai stimolando la soglia anaerobica come serve. Se non riesci a tenere il passo, potrebbe essere un segnale di affaticamento o che il VDOT va ricalibrato.")
+            else:
+                parts.append("Non è un problema enorme su un lento, ma se il passo sta calando sistematicamente potrebbe indicare stanchezza accumulata. Controlla come dormi e mangi.")
 
-        # HR zone check for session type
-        hr_ok = True
-        expected_zone = SESSION_TYPE_HR_ZONES.get(planned_type, {})
-        if avg_hr and expected_zone:
-            if avg_hr < expected_zone.get('min_hr', 0) - 10:
-                hr_ok = False  # too low
-            elif avg_hr > expected_zone.get('max_hr', 200) + 10:
-                hr_ok = False  # too high
-
-        if dist_ok and pace_ok and hr_ok:
-            lines[0] += "Allenamento centrato ✅"
-        elif pace_diff < -20:
-            lines[0] += "Troppo intenso ⚠️"
-        elif pace_diff > 20:
-            lines[0] += "Troppo blando ⚠️"
-        else:
-            lines[0] += "Deviazione dal piano ⚠️"
-
-        lines.append("")
-        lines.append("📋 **PIANO VS REALTÀ:**")
+        # Distance deviation
         if target_dist > 0:
-            dist_diff_pct = round((dist - target_dist) / target_dist * 100, 1)
-            lines.append(f"- Distanza: {dist}km vs {target_dist}km target ({'+' if dist_diff_pct > 0 else ''}{dist_diff_pct}%)")
-        if target_pace:
-            if pace_diff != 0:
-                direction = "più lento" if pace_diff > 0 else "più veloce"
-                lines.append(f"- Passo: {pace}/km vs {target_pace}/km target ({abs(pace_diff)}s/km {direction})")
-            else:
-                lines.append(f"- Passo: {pace}/km vs {target_pace}/km target")
-        if avg_hr and expected_zone:
-            zone_name = expected_zone.get('zone', '?')
-            lines.append(f"- FC media: {avg_hr} bpm ({hr_pct}% FCmax) — Zona attesa: {zone_name} ({expected_zone.get('min_hr')}-{expected_zone.get('max_hr')} bpm)")
-
-        lines.append("")
-        lines.append("💪 **PUNTI POSITIVI:**")
-        if dist_ok:
-            lines.append("- Distanza centrata rispetto al piano")
-        if pace_ok and pace:
-            lines.append("- Passo coerente con l'obiettivo della sessione")
-        if hr_ok and avg_hr:
-            lines.append("- Frequenza cardiaca nella zona corretta")
-        if duration > 30:
-            lines.append(f"- Buon volume di lavoro ({round(duration)} minuti)")
-
-        lines.append("")
-        lines.append("⚠️ **ATTENZIONE:**")
-        if not pace_ok and pace_diff < -15:
-            lines.append("- Attenzione a non esagerare con l'intensità. Corri troppo forte rischi overtraining.")
-        elif not pace_ok and pace_diff > 15:
-            lines.append("- Il passo è più lento del target. Assicurati di non trascinarti.")
-        if not hr_ok and avg_hr and expected_zone:
-            if avg_hr > expected_zone.get('max_hr', 200):
-                lines.append(f"- FC troppo alta per questo tipo di sessione ({planned_type}). Rischio sovraccarico.")
-            else:
-                lines.append(f"- FC più bassa del previsto. Potrebbe indicare scarsa intensità o buon adattamento.")
-        if not dist_ok and target_dist > 0:
-            if dist < target_dist:
-                lines.append(f"- Hai tagliato {round(target_dist - dist, 1)}km. Completa la distanza per ottenere l'adattamento previsto.")
-        if dist_ok and pace_ok and hr_ok:
-            lines.append("- Nessun punto critico. Ottimo lavoro!")
-
-    else:
-        # ===== CORSA EXTRA =====
-        lines.append("📊 **VERDETTO:** Corsa extra fuori dal piano")
-        lines.append("")
-        lines.append("📋 **ANALISI CORSA:**")
-        lines.append(f"- Distanza: {dist}km in {round(duration)} minuti")
-        lines.append(f"- Passo medio: {pace}/km")
-        if avg_hr:
-            lines.append(f"- FC media: {avg_hr} bpm ({hr_pct}% FCmax) — Zona: {hr_zone}")
-        if max_hr:
-            lines.append(f"- FC max: {max_hr} bpm ({max_hr_pct}% FCmax)")
-
-        lines.append("")
-        lines.append("💪 **VALUTAZIONE:**")
-
-        # Check pace vs VDOT zones
-        if vdot_paces and pace:
-            a_secs = _pace_to_seconds(pace)
-            easy_secs = _pace_to_seconds(vdot_paces.get('easy', ''))
-            tempo_secs = _pace_to_seconds(vdot_paces.get('threshold', ''))
-            interval_secs = _pace_to_seconds(vdot_paces.get('interval', ''))
-
-            if a_secs > 0 and easy_secs > 0:
-                if a_secs >= easy_secs - 10:
-                    lines.append(f"- Passo da corsa lenta (Easy: {vdot_paces.get('easy')}/km). ✅ Buona zona aerobica.")
-                    if avg_hr and avg_hr > 146:
-                        lines.append("- ⚠️ Ma la FC è troppo alta per un lento. Rallenta o controlla lo stress.")
-                elif tempo_secs > 0 and a_secs >= tempo_secs - 10:
-                    lines.append(f"- Passo da ritmo soglia (Threshold: {vdot_paces.get('threshold')}/km).")
-                    if avg_hr and avg_hr < 155:
-                        lines.append("- ✅ FC coerente con la soglia anaerobica.")
-                    elif avg_hr and avg_hr > 175:
-                        lines.append("- ⚠️ FC molto alta. Stai spingendo più della soglia.")
-                elif interval_secs > 0 and a_secs <= interval_secs + 10:
-                    lines.append(f"- Passo veloce, zona interval (Interval: {vdot_paces.get('interval')}/km).")
+            dist_diff = dist - target_dist
+            if abs(dist_diff) > 1:
+                if dist_diff > 0:
+                    parts.append(f"Hai fatto {round(dist_diff, 1)}km in più del previsto — va bene se ti sentivi bene, ma non esagerare col volume non pianificato.")
                 else:
-                    lines.append(f"- Passo intermedio tra easy e soglia.")
+                    parts.append(f"Hai tagliato {round(abs(dist_diff), 1)}km. Se è per stanchezza, ok, ascolta il corpo. Se è per fretta, cerca di completare la distanza.")
+    else:
+        # Extra run (not planned)
+        parts.append(rng.choice(openings_good if effort_type in ('easy', 'moderate') else openings_concern))
+        parts.append("Questa corsa non era nel piano.")
 
-        if dist < 3:
-            lines.append("- Corsa breve. Va bene per defaticamento o riscaldamento.")
-        elif dist >= 10:
-            lines.append("- Buon volume di corsa. Attento al recupero nei prossimi giorni.")
+        if effort_type == "easy" and not hr_too_high_for_easy:
+            parts.append("Come corsa facile aggiuntiva ci può stare — volume aerobico extra fa bene purché non ti tolga energie per le sedute chiave.")
+        elif effort_type == "easy" and hr_too_high_for_easy:
+            parts.append(f"La FC a {avg_hr}bpm è troppo alta per un lento. A {hr_pct}% della massima non stai correndo facile, stai facendo un medio. Rallenta.")
+        elif effort_type in ("tempo", "fast"):
+            parts.append("Attenzione: una seduta intensa fuori dal piano può interferire con il recupero. Le sedute di qualità vanno programmate, non improvvisate.")
 
-        lines.append("")
-        lines.append("⚠️ **NOTE:**")
-        lines.append("- Questa corsa non era nel piano. Assicurati di non accumulare troppo volume non pianificato.")
-        if avg_hr and avg_hr > 160:
-            lines.append("- FC elevata. Se non era una sessione di qualità, stai attento a non esagerare.")
+        if vdot_paces:
+            easy_pace = vdot_paces.get('easy', '')
+            if easy_pace:
+                parts.append(f"Per riferimento, il tuo passo easy Daniels è {easy_pace}/km (VDOT {vdot}).")
 
-    # Common section
-    lines.append("")
-    lines.append("🎯 **PROSSIMA SESSIONE:**")
+    # ---- TREND from recent runs ----
+    if recent_runs and len(recent_runs) >= 3:
+        recent_paces = [_pace_to_seconds(r.get('avg_pace', '')) for r in recent_runs[:5] if _pace_to_seconds(r.get('avg_pace', '')) > 0]
+        if len(recent_paces) >= 3:
+            trend = recent_paces[0] - recent_paces[-1]
+            if trend < -10:
+                parts.append("Guardando le ultime corse, il passo sta migliorando — buon segno.")
+            elif trend > 15:
+                parts.append("Noto che il passo sta rallentando nelle ultime uscite. Potrebbe essere stanchezza accumulata — valuta un giorno di riposo extra.")
+
+    # ---- CONTEXT: phase and weeks to race ----
     if planned_week:
         phase = planned_week.get('phase', '')
-        lines.append(f"- Fase attuale: {phase} — Settimana {planned_week.get('week_number', '?')}")
-        if planned_week.get('is_recovery_week'):
-            lines.append("- Settimana di scarico: mantieni i ritmi bassi e recupera.")
-        lines.append("- Segui il piano della prossima sessione per costruire progressivamente la base.")
-    else:
-        lines.append("- Continua con il piano di allenamento previsto. Non saltare le sessioni di recupero.")
+        if phase:
+            phase_comments = {
+                "Ripresa": "Sei in fase di ripresa — la priorità è ricostruire la base senza forzare. Pazienza.",
+                "Base Aerobica": "Fase di base aerobica: chilometri facili, costruisci il motore. Non cercare la velocità ora.",
+                "Sviluppo": "Fase di sviluppo: qui inizi a inserire lavori di qualità. Rispetta i recuperi tra le sedute.",
+                "Preparazione Specifica": "Preparazione specifica per la mezza: i lavori devono simulare lo sforzo gara.",
+                "Picco": "Sei nella fase di picco — massimo carico. Ascolta il corpo, il rischio infortunio è più alto.",
+                "Tapering": "Tapering: riduci il volume, mantieni l'intensità. Tra poco si corre.",
+            }
+            comment = phase_comments.get(phase)
+            if comment:
+                parts.append(comment)
 
-    return "\n".join(lines)
+    if weeks_to_race > 0 and weeks_to_race <= 20:
+        parts.append(f"Mancano {weeks_to_race} settimane a Corralejo — ogni seduta conta.")
+
+    return " ".join(parts)
 
 
 def _generate_basic_analysis(run, planned_session, planned_week):
@@ -1931,10 +1916,9 @@ async def get_analytics():
         dur = r.get("duration_minutes", 0)
         if dist < 3 or dur <= 0:
             continue
-        # Accept runs with HR ≥ 75% HRmax OR runs without HR data (broader filter)
-        hr = r.get("avg_hr")
-        if hr and max_hr > 0 and (hr / max_hr) < 0.75:
-            continue
+        # Include all runs ≥ 3km for comprehensive VO2max tracking
+        # Easy runs will naturally produce lower VDOT values
+        # The weekly grouping picks the best effort per week anyway
         vdot_val_hist = calculate_vdot_from_race(dist, dur)
         if vdot_val_hist:
             vdot_rounded = round(vdot_val_hist, 1)
@@ -2832,6 +2816,90 @@ async def sync_strava_activities():
         "adaptation": adaptation_result,
         "vdot_update": vdot_update,
     }
+
+@api_router.post("/strava/resync-details")
+async def resync_strava_details():
+    """Re-fetch detailed Strava data (cadence, splits, best_efforts) for existing runs missing this data."""
+    token = await get_valid_strava_token()
+
+    # Find runs with strava_id but missing cadence or splits
+    runs = await db.runs.find(
+        {"strava_id": {"$exists": True, "$ne": None}},
+        {"_id": 0, "id": 1, "strava_id": 1, "avg_cadence": 1, "splits": 1, "date": 1}
+    ).to_list(2000)
+
+    updated = 0
+    errors = 0
+
+    for run in runs:
+        needs_cadence = not run.get("avg_cadence")
+        needs_splits = not run.get("splits")
+
+        if not needs_cadence and not needs_splits:
+            continue
+
+        try:
+            async with httpx.AsyncClient(timeout=30) as http:
+                resp = await http.get(
+                    f"https://www.strava.com/api/v3/activities/{run['strava_id']}",
+                    headers={"Authorization": f"Bearer {token}"},
+                    params={"include_all_efforts": "true"}
+                )
+                if resp.status_code == 200:
+                    detail = resp.json()
+                    update_fields = {}
+
+                    # Cadence
+                    if needs_cadence and detail.get("average_cadence"):
+                        update_fields["avg_cadence"] = round(detail["average_cadence"] * 2)
+
+                    # Splits
+                    if needs_splits:
+                        splits_metric = detail.get("splits_metric", [])
+                        if splits_metric:
+                            splits = []
+                            for idx, sp in enumerate(splits_metric):
+                                sp_dist = sp.get("distance", 0)
+                                sp_time = sp.get("elapsed_time", 0)
+                                sp_hr = sp.get("average_heartrate")
+                                if sp_dist > 0 and sp_time > 0:
+                                    sp_pace_s = sp_time / (sp_dist / 1000)
+                                    sp_pace = f"{int(sp_pace_s // 60)}:{int(sp_pace_s % 60):02d}"
+                                else:
+                                    sp_pace = "0:00"
+                                splits.append({
+                                    "km": idx + 1,
+                                    "pace": sp_pace,
+                                    "hr": round(sp_hr) if sp_hr else None,
+                                    "distance": round(sp_dist, 1),
+                                    "elapsed_time": sp_time,
+                                })
+                            update_fields["splits"] = splits
+
+                    # Best efforts
+                    best_efforts_raw = detail.get("best_efforts", [])
+                    if best_efforts_raw:
+                        run_doc = await db.runs.find_one({"id": run["id"]}, {"_id": 0})
+                        if run_doc:
+                            await _process_best_efforts(best_efforts_raw, run_doc)
+
+                    if update_fields:
+                        await db.runs.update_one({"id": run["id"]}, {"$set": update_fields})
+                        updated += 1
+                elif resp.status_code == 429:
+                    logger.warning("Strava rate limit hit during resync, stopping")
+                    break
+                else:
+                    errors += 1
+        except Exception as e:
+            logger.error(f"Resync error for run {run['id']}: {e}")
+            errors += 1
+
+        # Small delay to avoid Strava rate limits
+        import asyncio
+        await asyncio.sleep(0.5)
+
+    return {"updated": updated, "errors": errors, "total_checked": len(runs)}
 
 async def _compare_run_to_plan(activity: dict) -> dict:
     """Compare a Strava activity against the planned session for that day.
