@@ -355,14 +355,14 @@ Storico evoluzione prestazioni:
 - **Andamento paces**: line chart settimanale per zona Easy/Tempo/Fast (touch tooltip con drag)
 - **Cadenza**: grafico mensile con target 180 spm da Strava (touch tooltip con drag)
 - **Efficienza Aerobica (trend)**: grafico decoupling settimanale con zone colorate (verde/giallo/arancione/rosso), target 5%
-- **Distribuzione zone HR**: barre Z1-Z5 con soglie assolute BPM (Z1<117, Z2 117-146, Z3 147-160, Z4 161-175, Z5>175)
-- **Previsioni gara**: 5km, 10km, 21.1km con progresso verso obiettivo + frecce trend (miglioramento/peggioramento in secondi)
+- **Distribuzione zone HR**: barre Z1-Z5 con soglie assolute BPM (Z1<117, Z2 117-146, Z3 147-160, Z4 161-175, Z5>175), barre allineate con percentuali fisse a destra
+- **Previsioni gara (VDOT Daniels)**: 5km, 10km, 21.1km, 42.2km basate su VDOT calcolato da sforzi validati (HR ≥82% max). Grafico storico interattivo (touch/drag con tooltip data+pace+VDOT), filtri per periodo (Oggi/1M/3M/6M), tabs distanza, frecce trend miglioramento/peggioramento, rolling window 8 settimane. Usa `predict_time_from_vdot()` con ricerca binaria su formula Daniels (non più Riegel su avg_pace)
 - **Best efforts**: migliori prestazioni per distanza con passo e FC
 
 ### 12. 🧮 Calcolatore
 Strumenti di calcolo per il runner:
 - **Passi da VDOT**: mostra VDOT corrente e i 5 passi di Daniels
-- **Previsioni gara** (formula Riegel): inserisci un PB e predice gli altri tempi
+- **Previsioni gara** (VDOT Daniels + Riegel): inserisci un PB e predice gli altri tempi
 - **Convertitore passo/velocità**: min:sec/km ↔ km/h
 
 ### 13. 🔗 Strava Callback

@@ -1,7 +1,7 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useRef } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
-  ActivityIndicator, Dimensions,
+  ActivityIndicator, Dimensions, PanResponder, GestureResponderEvent,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -539,6 +539,7 @@ export default function ProgressiScreen() {
   const [selectedPeriod, setSelectedPeriod] = useState<string>('oggi');
   const [selectedDistance, setSelectedDistance] = useState<string>('5km');
   const [tooltip, setTooltip] = useState<{ x: number; y: number; value: string; label: string } | null>(null);
+  const [predTooltip, setPredTooltip] = useState<{ idx: number; time: string; pace: string; date: string; vdot: number } | null>(null);
 
   useFocusEffect(
     useCallback(() => {
@@ -945,14 +946,12 @@ export default function ProgressiScreen() {
                         justifyContent: 'center',
                         paddingLeft: 6,
                       }}>
-                        {z.pct >= 5 && (
+                        {z.pct >= 10 && (
                           <Text style={{ fontSize: 10, color: z.color, fontWeight: '800' }}>{z.pct}%</Text>
                         )}
                       </View>
                     </View>
-                    {z.pct < 5 && (
-                      <Text style={{ fontSize: 10, color: z.color, fontWeight: '800', width: 30 }}>{z.pct}%</Text>
-                    )}
+                    <Text style={{ fontSize: 10, color: z.color, fontWeight: '800', width: 30, textAlign: 'right' }}>{z.pct}%</Text>
                     <Text style={{ fontSize: 9, color: COLORS.textMuted, width: 48 }}>{z.sublabel}</Text>
                   </View>
                 ))}
@@ -1081,23 +1080,39 @@ export default function ProgressiScreen() {
               if (filteredData.length < 2) return null;
 
               const timeValues = filteredData.map((s: any) => s.predictions[selectedDistance].time_min);
-              const maxTime = Math.max(...timeValues) + 1;
-              const minTime = Math.min(...timeValues) - 1;
-              const rangeTime = maxTime - minTime || 5;
+              const maxTime = Math.max(...timeValues);
+              const minTime = Math.min(...timeValues);
+              const paddingPct = (maxTime - minTime) * 0.1 || 1;
+              const chartMin = minTime - paddingPct;
+              const chartMax = maxTime + paddingPct;
+              const rangeTime = chartMax - chartMin || 5;
 
-              const predChartH = 160;
-              const predChartW = SCREEN_WIDTH - 120;
+              const predChartH = 180;
+              const predChartW = SCREEN_WIDTH - 110;
+              const chartLeft = 50;
               const stepX = predChartW / Math.max(filteredData.length - 1, 1);
 
-              const toY = (val: number) => predChartH - ((maxTime - val) / rangeTime) * predChartH;
+              // Y axis is INVERTED for time: lower time = better = higher on chart
+              const toY = (val: number) => ((val - chartMin) / rangeTime) * predChartH;
 
               const formatTime = (min: number) => {
-                if (min < 60) return `${Math.floor(min)}:${Math.round((min % 1) * 60).toString().padStart(2, '0')}`;
-                return `${Math.floor(min / 60)}:${Math.round(min % 60).toString().padStart(2, '0')}`;
+                const totalSecs = Math.round(min * 60);
+                const h = Math.floor(totalSecs / 3600);
+                const m = Math.floor((totalSecs % 3600) / 60);
+                const s = totalSecs % 60;
+                if (h > 0) return `${h}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+                return `${m}:${s.toString().padStart(2, '0')}`;
               };
 
-              const formatDate = (d: string) => {
-                try { const p = d.split('-'); return `${p[2]}/${p[1]}`; } catch { return d; }
+              const formatDateIt = (d: string) => {
+                try {
+                  const p = d.split('-');
+                  const monthNames: Record<string, string> = {
+                    '01': 'gen', '02': 'feb', '03': 'mar', '04': 'apr', '05': 'mag', '06': 'giu',
+                    '07': 'lug', '08': 'ago', '09': 'set', '10': 'ott', '11': 'nov', '12': 'dic',
+                  };
+                  return `${parseInt(p[2])} ${monthNames[p[1]] || p[1]} ${p[0]}`;
+                } catch { return d; }
               };
 
               // Month labels for X axis
@@ -1106,28 +1121,97 @@ export default function ProgressiScreen() {
                 '07': 'LUG', '08': 'AGO', '09': 'SET', '10': 'OTT', '11': 'NOV', '12': 'DIC',
               };
 
+              // Generate 4 Y-axis grid values
+              const yGridCount = 4;
+              const yGridValues = Array.from({ length: yGridCount }, (_, i) =>
+                chartMin + (rangeTime * i) / (yGridCount - 1)
+              );
+
+              // Handle touch to find nearest data point
+              const handleTouch = (evt: GestureResponderEvent) => {
+                const touchX = evt.nativeEvent.locationX - chartLeft;
+                if (touchX < 0 || touchX > predChartW) {
+                  setPredTooltip(null);
+                  return;
+                }
+                // Find nearest point
+                let nearestIdx = 0;
+                let minDist = Infinity;
+                for (let i = 0; i < filteredData.length; i++) {
+                  const px = i * stepX;
+                  const dist = Math.abs(touchX - px);
+                  if (dist < minDist) {
+                    minDist = dist;
+                    nearestIdx = i;
+                  }
+                }
+                const point = filteredData[nearestIdx];
+                const pred = point.predictions[selectedDistance];
+                setPredTooltip({
+                  idx: nearestIdx,
+                  time: pred.time_str,
+                  pace: pred.pace,
+                  date: formatDateIt(point.date),
+                  vdot: point.vdot || 0,
+                });
+              };
+
               return (
                 <View style={{ marginTop: SPACING.sm }}>
-                  <View style={{ height: predChartH + 40 }}>
+                  {/* Tooltip */}
+                  {predTooltip && (
+                    <View style={{
+                      backgroundColor: '#1e293b', borderRadius: 8, padding: 8,
+                      marginBottom: 6, alignSelf: 'flex-start', marginLeft: chartLeft,
+                    }}>
+                      <Text style={{ fontSize: 16, color: '#fff', fontWeight: '900' }}>
+                        {predTooltip.time}  <Text style={{ fontSize: 11, fontWeight: '600', color: COLORS.textMuted }}>{predTooltip.pace} /km</Text>
+                      </Text>
+                      <Text style={{ fontSize: 10, color: COLORS.textMuted, marginTop: 2 }}>
+                        {predTooltip.date}{predTooltip.vdot ? `  •  VDOT ${predTooltip.vdot}` : ''}
+                      </Text>
+                    </View>
+                  )}
+
+                  <View
+                    style={{ height: predChartH + 40 }}
+                    onStartShouldSetResponder={() => true}
+                    onMoveShouldSetResponder={() => true}
+                    onResponderGrant={handleTouch}
+                    onResponderMove={handleTouch}
+                    onResponderRelease={() => {/* keep tooltip visible */}}
+                  >
                     {/* Y-axis labels */}
-                    <View style={{ position: 'absolute', left: 0, top: 0, height: predChartH, justifyContent: 'space-between' }}>
-                      <Text style={{ fontSize: 8, color: COLORS.textMuted }}>{formatTime(minTime)}</Text>
-                      <Text style={{ fontSize: 8, color: COLORS.textMuted }}>{formatTime((minTime + maxTime) / 2)}</Text>
-                      <Text style={{ fontSize: 8, color: COLORS.textMuted }}>{formatTime(maxTime)}</Text>
+                    <View style={{ position: 'absolute', left: 0, top: 0, height: predChartH, width: chartLeft - 4 }}>
+                      {yGridValues.map((val, i) => (
+                        <Text key={i} style={{
+                          position: 'absolute', top: toY(val) - 6, right: 0,
+                          fontSize: 9, color: COLORS.textMuted, textAlign: 'right',
+                        }}>{formatTime(val)}</Text>
+                      ))}
                     </View>
 
-                    {/* Chart */}
-                    <View style={{ marginLeft: 44, height: predChartH, position: 'relative' }}>
+                    {/* Chart area */}
+                    <View style={{ marginLeft: chartLeft, height: predChartH, position: 'relative' }}>
                       {/* Grid lines */}
-                      {[0, 0.5, 1].map((pct, i) => (
+                      {yGridValues.map((val, i) => (
                         <View key={i} style={{
-                          position: 'absolute', top: pct * predChartH,
+                          position: 'absolute', top: toY(val),
                           left: 0, right: 0, height: 1,
-                          backgroundColor: COLORS.cardBorder, opacity: 0.5,
+                          backgroundColor: COLORS.cardBorder, opacity: 0.3,
                         }} />
                       ))}
 
-                      {/* Lines */}
+                      {/* Vertical indicator line for selected point */}
+                      {predTooltip && (
+                        <View style={{
+                          position: 'absolute', left: predTooltip.idx * stepX,
+                          top: 0, width: 1, height: predChartH,
+                          backgroundColor: '#ffffff40',
+                        }} />
+                      )}
+
+                      {/* Lines connecting dots */}
                       {filteredData.map((s: any, i: number) => {
                         if (i === 0) return null;
                         const prev = filteredData[i - 1];
@@ -1148,26 +1232,28 @@ export default function ProgressiScreen() {
                       {/* Dots */}
                       {filteredData.map((s: any, i: number) => {
                         const y = toY(s.predictions[selectedDistance].time_min);
+                        const isSelected = predTooltip?.idx === i;
                         const isLast = i === filteredData.length - 1;
+                        const dotSize = isSelected ? 14 : isLast ? 10 : 6;
                         return (
                           <View key={`phd-${i}`} style={{
-                            position: 'absolute', left: i * stepX - (isLast ? 6 : 3), top: y - (isLast ? 6 : 3),
-                            width: isLast ? 12 : 6, height: isLast ? 12 : 6,
-                            borderRadius: isLast ? 6 : 3,
-                            backgroundColor: isLast ? '#3b82f6' : '#3b82f680',
+                            position: 'absolute', left: i * stepX - dotSize / 2, top: y - dotSize / 2,
+                            width: dotSize, height: dotSize, borderRadius: dotSize / 2,
+                            backgroundColor: isSelected ? '#fff' : isLast ? '#3b82f6' : '#3b82f680',
+                            borderWidth: isSelected ? 3 : 0, borderColor: '#3b82f6',
                           }} />
                         );
                       })}
                     </View>
 
                     {/* X-axis labels */}
-                    <View style={{ marginLeft: 44, flexDirection: 'row', marginTop: 4 }}>
+                    <View style={{ marginLeft: chartLeft, flexDirection: 'row', marginTop: 6 }}>
                       {filteredData.map((s: any, i: number) => {
                         const monthKey = s.date.split('-')[1];
-                        const showLabel = i % Math.max(1, Math.floor(filteredData.length / 5)) === 0;
+                        const showLabel = i % Math.max(1, Math.floor(filteredData.length / 6)) === 0 || i === filteredData.length - 1;
                         return (
                           <Text key={i} style={{
-                            position: 'absolute', left: i * stepX - 14, fontSize: 8,
+                            position: 'absolute', left: i * stepX - 14, fontSize: 9,
                             color: COLORS.textMuted, width: 30, textAlign: 'center',
                           }}>
                             {showLabel ? (months[monthKey] || monthKey) : ''}

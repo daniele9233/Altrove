@@ -70,6 +70,23 @@ def _velocity_from_vo2(vo2: float) -> float:
         return 0.0
     return (-b + math.sqrt(discriminant)) / (2 * a)
 
+def predict_time_from_vdot(vdot: float, distance_km: float) -> float | None:
+    """Predict race time (minutes) from VDOT using binary search on Daniels formula.
+    Finds the duration at which calculate_vdot_from_race returns the target VDOT."""
+    if vdot <= 0 or distance_km <= 0:
+        return None
+    low, high = 1.0, 600.0  # 1 min to 10 hours
+    for _ in range(100):
+        mid = (low + high) / 2
+        calc_vdot = calculate_vdot_from_race(distance_km, mid)
+        if calc_vdot is None:
+            return None
+        if calc_vdot > vdot:
+            low = mid  # time too fast → increase
+        else:
+            high = mid  # time too slow → decrease
+    return round((low + high) / 2, 2)
+
 def _velocity_to_pace_str(velocity_m_per_min: float) -> str:
     """Convert velocity (m/min) to pace string (min:sec per km)."""
     if velocity_m_per_min <= 0:
@@ -1131,43 +1148,65 @@ async def get_run(run_id: str):
                     }
                     break
 
-    # ---- Race predictions for this run ----
+    # ---- Race predictions for this run (VDOT-based, Daniels) ----
     race_predictions = {}
     prediction_trends = {}
     try:
-        vdot_val, _ = await calculate_current_vdot()
-        if vdot_val:
-            # Use Riegel formula from best post-injury efforts
-            all_runs = await db.runs.find({"date": {"$gte": "2026-01-01"}}, {"_id": 0}).to_list(2000)
-            best_efforts_map = {}
-            for target_dist in [10, 6, 5, 4]:
-                candidates = [r for r in all_runs if abs(r.get("distance_km", 0) - target_dist) < 0.5
-                               and r.get("duration_minutes", 0) > 0]
-                if candidates:
-                    def _pace_secs(p):
-                        if not p or ':' not in p: return 9999
-                        pts = p.split(':')
-                        try: return int(pts[0]) * 60 + int(pts[1])
-                        except: return 9999
-                    best = min(candidates, key=lambda r: _pace_secs(r.get("avg_pace", "9:99")))
-                    best_efforts_map[f"{target_dist}km"] = {
-                        "distance_km": best["distance_km"],
-                        "duration_minutes": best["duration_minutes"],
-                        "avg_pace": best.get("avg_pace"),
-                        "date": best.get("date"),
-                    }
+        # Get current best VDOT from validated efforts
+        profile_data = await db.profile.find_one({}, {"_id": 0}) or {}
+        max_hr_pred = profile_data.get("max_hr", 180)
+        recent_runs = await db.runs.find(
+            {"date": {"$gte": "2025-01-01"}},
+            {"_id": 0, "date": 1, "distance_km": 1, "duration_minutes": 1,
+             "avg_hr": 1, "splits": 1}
+        ).sort("date", -1).to_list(500)
 
-            ref_run_pred = best_efforts_map.get("10km") or best_efforts_map.get("6km") or best_efforts_map.get("5km") or best_efforts_map.get("4km")
-            if ref_run_pred:
-                ref_dist = ref_run_pred["distance_km"]
-                ref_time_min = ref_run_pred["duration_minutes"]
-                for target_name, target_km in [("5km", 5), ("10km", 10), ("21.1km", 21.1)]:
-                    pred_time = ref_time_min * (target_km / ref_dist) ** 1.06
+        best_vdot_pred = None
+        for r in recent_runs:
+            rd = r.get("distance_km", 0)
+            rdur = r.get("duration_minutes", 0)
+            if rd < 3 or rdur <= 0:
+                continue
+            # Validate effort
+            rhr = r.get("avg_hr")
+            if rhr and max_hr_pred > 0 and rhr / max_hr_pred < 0.82:
+                continue
+            rv = calculate_vdot_from_race(rd, rdur)
+            if rv:
+                # Also check best segments from splits
+                rsplits = r.get("splits", [])
+                if rsplits and len(rsplits) >= 3:
+                    for seg_len in [3, 5, 10]:
+                        if len(rsplits) >= seg_len:
+                            best_seg = None
+                            for start in range(len(rsplits) - seg_len + 1):
+                                st = sum(s.get("elapsed_time", 0) for s in rsplits[start:start + seg_len])
+                                if st > 0 and (best_seg is None or st < best_seg):
+                                    best_seg = st
+                            if best_seg:
+                                sv = calculate_vdot_from_race(seg_len, best_seg / 60)
+                                if sv and sv > rv:
+                                    rv = sv
+                if best_vdot_pred is None or rv > best_vdot_pred:
+                    best_vdot_pred = rv
+
+        if best_vdot_pred:
+            for target_name, target_km in [("5km", 5), ("10km", 10), ("21.1km", 21.1), ("42.2km", 42.195)]:
+                pred_time = predict_time_from_vdot(best_vdot_pred, target_km)
+                if pred_time:
+                    total_secs = int(round(pred_time * 60))
+                    hours = total_secs // 3600
+                    mins = (total_secs % 3600) // 60
+                    secs = total_secs % 60
                     pred_pace_s = (pred_time * 60) / target_km
                     pred_pace = f"{int(pred_pace_s // 60)}:{int(pred_pace_s % 60):02d}"
+                    if hours > 0:
+                        time_str = f"{hours}:{mins:02d}:{secs:02d}"
+                    else:
+                        time_str = f"{mins}:{secs:02d}"
                     race_predictions[target_name] = {
                         "predicted_time_min": round(pred_time, 1),
-                        "predicted_time_str": f"{int(pred_time // 60)}:{int(pred_time % 60):02d}:{int((pred_time % 1) * 60):02d}",
+                        "predicted_time_str": time_str,
                         "predicted_pace": pred_pace,
                     }
 
@@ -1862,24 +1901,55 @@ async def _get_analytics_impl():
     target_pct_vo2 = 0.8 + 0.1894393 * math.exp(-0.012778 * target_time_min) + 0.2989558 * math.exp(-0.1932605 * target_time_min)
     vo2max_target = round(target_vo2 / target_pct_vo2, 1) if target_pct_vo2 > 0 else None
 
-    # ---- RACE PREDICTIONS (Riegel formula) - POST-INJURY ONLY ----
+    # ---- RACE PREDICTIONS (VDOT-based, Daniels' Running Formula) ----
     race_predictions = {}
-    ref_run = best_efforts_post_injury.get("10km") or best_efforts_post_injury.get("6km") or best_efforts_post_injury.get("5km") or best_efforts_post_injury.get("4km")
-    if ref_run:
-        ref_dist = ref_run["distance_km"]
-        ref_time_min = ref_run["duration_minutes"]
-        ref_pace = ref_run.get("avg_pace", "N/A")
-        ref_date = ref_run.get("date", "N/A")
-        for target_name, target_km in [("5km", 5), ("10km", 10), ("21.1km", 21.1)]:
-            pred_time = ref_time_min * (target_km / ref_dist) ** 1.06
-            pred_pace_s = (pred_time * 60) / target_km
-            pred_pace = f"{int(pred_pace_s // 60)}:{int(pred_pace_s % 60):02d}"
-            race_predictions[target_name] = {
-                "predicted_time_min": round(pred_time, 1),
-                "predicted_time_str": f"{int(pred_time // 60)}:{int(pred_time % 60):02d}:{int((pred_time % 1) * 60):02d}",
-                "predicted_pace": pred_pace,
-                "based_on": f"{ref_dist}km del {ref_date} ({ref_pace}/km)"
-            }
+    # Calculate best VDOT from validated efforts (HR >= 82% max or no HR data)
+    analytics_max_hr = profile.get("max_hr", 180) if profile else 180
+    best_vdot_analytics = None
+    for r in post_injury_runs:
+        rd = r.get("distance_km", 0)
+        rdur = r.get("duration_minutes", 0)
+        if rd < 3 or rdur <= 0:
+            continue
+        rhr = r.get("avg_hr")
+        if rhr and analytics_max_hr > 0 and rhr / analytics_max_hr < 0.82:
+            continue
+        rv = calculate_vdot_from_race(rd, rdur)
+        if rv:
+            # Check best segments from splits
+            rsplits = r.get("splits", [])
+            if rsplits and len(rsplits) >= 3:
+                for seg_len in [3, 5, 10]:
+                    if len(rsplits) >= seg_len:
+                        best_seg = None
+                        for start in range(len(rsplits) - seg_len + 1):
+                            st = sum(s.get("elapsed_time", 0) for s in rsplits[start:start + seg_len])
+                            if st > 0 and (best_seg is None or st < best_seg):
+                                best_seg = st
+                        if best_seg:
+                            sv = calculate_vdot_from_race(seg_len, best_seg / 60)
+                            if sv and sv > rv:
+                                rv = sv
+            if best_vdot_analytics is None or rv > best_vdot_analytics:
+                best_vdot_analytics = rv
+
+    if best_vdot_analytics:
+        for target_name, target_km in [("5km", 5), ("10km", 10), ("21.1km", 21.1), ("42.2km", 42.195)]:
+            pred_time = predict_time_from_vdot(best_vdot_analytics, target_km)
+            if pred_time:
+                total_secs = int(round(pred_time * 60))
+                hours = total_secs // 3600
+                mins = (total_secs % 3600) // 60
+                secs = total_secs % 60
+                pred_pace_s = (pred_time * 60) / target_km
+                pred_pace = f"{int(pred_pace_s // 60)}:{int(pred_pace_s % 60):02d}"
+                time_str = f"{hours}:{mins:02d}:{secs:02d}" if hours > 0 else f"{mins}:{secs:02d}"
+                race_predictions[target_name] = {
+                    "predicted_time_min": round(pred_time, 1),
+                    "predicted_time_str": time_str,
+                    "predicted_pace": pred_pace,
+                    "based_on": f"VDOT {best_vdot_analytics:.1f}"
+                }
 
     # ---- PREDICTION TREND (compare with previous) ----
     prediction_trends = {}
@@ -3644,104 +3714,157 @@ async def get_decoupling_history():
 @api_router.get("/prediction-history")
 async def get_prediction_history():
     """
-    Returns race prediction history over time.
-    For each run (chronologically from 2026), recalculates what the predicted
-    race times would be based on best efforts up to that date.
-    Uses Riegel formula: T2 = T1 * (D2/D1)^1.06
-    Returns predictions for 5km, 10km, 21.1km, 42.2km.
+    Race predictions based on VDOT analysis (Daniels' Running Formula).
+
+    Algorithm:
+    1. For each run, calculate VDOT using Daniels formula.
+    2. Also extract best continuous segments (3km, 5km, 10km) from splits
+       and calculate their VDOT — takes the highest.
+    3. Filter by effort level: runs with avg_hr >= 82% max_hr are "validated"
+       (race/tempo effort). Others are included but with lower priority.
+    4. Use a rolling 8-week window: best validated VDOT in window determines
+       predicted race times at 5km, 10km, 21.1km, 42.2km.
+    5. predict_time_from_vdot() uses inverse Daniels formula (binary search)
+       for scientifically accurate time predictions at any distance.
     """
     from datetime import date as dt_date
 
+    profile = await db.profile.find_one({}, {"_id": 0}) or {}
+    max_hr = profile.get("max_hr", 180)
+
+    VDOT_MIN_DISTANCE_KM = 3.0
+    VDOT_MIN_HR_PCT = 0.82  # 82% HRmax threshold for validated effort
+    ROLLING_WINDOW_DAYS = 56  # 8 weeks
+
     all_runs = await db.runs.find(
         {"date": {"$gte": "2025-01-01"}},
-        {"_id": 0, "date": 1, "distance_km": 1, "duration_minutes": 1, "avg_pace": 1}
+        {"_id": 0, "date": 1, "distance_km": 1, "duration_minutes": 1,
+         "avg_pace": 1, "avg_hr": 1, "splits": 1}
     ).sort("date", 1).to_list(5000)
 
     if not all_runs:
-        return {"prediction_history": [], "current": {}}
+        return {"prediction_history": [], "current": {}, "trends": {}}
 
-    def _pace_secs(p):
-        if not p or ':' not in p:
-            return 9999
-        try:
-            pts = p.split(':')
-            return int(pts[0]) * 60 + int(pts[1])
-        except Exception:
-            return 9999
-
-    # For each run date, track cumulative best efforts for reference distances
     target_distances = [("5km", 5), ("10km", 10), ("21.1km", 21.1), ("42.2km", 42.195)]
-    ref_distances = [10, 8, 6, 5, 4]  # distances to use as reference for Riegel
 
-    prediction_snapshots = []
-    best_efforts_so_far = {}  # {dist_bucket: {distance_km, duration_minutes, pace_secs}}
-
+    # ---- Step 1: Calculate VDOT for each run ----
+    run_vdots = []
     for run in all_runs:
         dist = run.get("distance_km", 0)
         dur = run.get("duration_minutes", 0)
         run_date = run.get("date", "")
-        pace = run.get("avg_pace", "")
+        avg_hr = run.get("avg_hr")
+        splits = run.get("splits", [])
 
-        if dist < 2 or dur <= 0 or not run_date:
+        if dist < VDOT_MIN_DISTANCE_KM or dur <= 0 or not run_date:
             continue
 
-        pace_s = _pace_secs(pace)
+        # Check if validated effort (race-like HR)
+        is_validated = True
+        if avg_hr and max_hr > 0:
+            hr_pct = avg_hr / max_hr
+            if hr_pct < VDOT_MIN_HR_PCT:
+                is_validated = False
 
-        # Update best effort for closest reference distance
-        for ref_d in ref_distances:
-            if abs(dist - ref_d) < 1.0:  # within 1km of reference
-                key = f"{ref_d}km"
-                existing = best_efforts_so_far.get(key)
-                if not existing or pace_s < existing["pace_secs"]:
-                    best_efforts_so_far[key] = {
-                        "distance_km": dist,
-                        "duration_minutes": dur,
-                        "pace_secs": pace_s,
-                        "date": run_date,
-                    }
-
-        # Find best reference run so far (prefer longer distances)
-        ref_run = None
-        for rd in ref_distances:
-            rk = f"{rd}km"
-            if rk in best_efforts_so_far:
-                ref_run = best_efforts_so_far[rk]
-                break
-
-        if not ref_run:
+        # VDOT from full run
+        run_vdot = calculate_vdot_from_race(dist, dur)
+        if not run_vdot:
             continue
 
-        # Calculate predictions using Riegel formula
-        ref_dist = ref_run["distance_km"]
-        ref_time = ref_run["duration_minutes"]
-        preds = {}
-        for tname, tkm in target_distances:
-            pred_time = ref_time * (tkm / ref_dist) ** 1.06
-            pred_pace_s = (pred_time * 60) / tkm
-            preds[tname] = {
-                "time_min": round(pred_time, 2),
-                "time_str": f"{int(pred_time // 60)}:{int(pred_time % 60):02d}:{int((pred_time % 1) * 60):02d}",
-                "pace": f"{int(pred_pace_s // 60)}:{int(pred_pace_s % 60):02d}",
-            }
+        best_vdot_for_run = run_vdot
 
-        prediction_snapshots.append({
+        # ---- Step 2: Best segments from splits ----
+        if splits and len(splits) >= 3:
+            for seg_len in [3, 5, 10]:
+                if len(splits) >= seg_len:
+                    best_seg_time = None
+                    for start in range(len(splits) - seg_len + 1):
+                        seg_splits = splits[start:start + seg_len]
+                        seg_time_sec = sum(s.get("elapsed_time", 0) for s in seg_splits)
+                        if seg_time_sec > 0 and (best_seg_time is None or seg_time_sec < best_seg_time):
+                            best_seg_time = seg_time_sec
+                    if best_seg_time and best_seg_time > 0:
+                        seg_vdot = calculate_vdot_from_race(seg_len, best_seg_time / 60)
+                        if seg_vdot and seg_vdot > best_vdot_for_run:
+                            best_vdot_for_run = seg_vdot
+
+        run_vdots.append({
             "date": run_date[:10],
-            "predictions": preds,
+            "vdot": best_vdot_for_run,
+            "is_validated": is_validated,
         })
 
-    # Deduplicate: keep last prediction per date
+    if not run_vdots:
+        return {"prediction_history": [], "current": {}, "trends": {}}
+
+    # ---- Step 3: Build prediction history using rolling best VDOT ----
+    def _format_pred_time(pred_time_min):
+        """Format prediction time in minutes to readable string."""
+        total_secs = int(round(pred_time_min * 60))
+        hours = total_secs // 3600
+        mins = (total_secs % 3600) // 60
+        secs = total_secs % 60
+        if hours > 0:
+            return f"{hours}:{mins:02d}:{secs:02d}"
+        return f"{mins}:{secs:02d}"
+
+    prediction_snapshots = []
+    for i, rv in enumerate(run_vdots):
+        run_date = rv["date"]
+        cutoff_date = (dt_date.fromisoformat(run_date) - timedelta(days=ROLLING_WINDOW_DAYS)).isoformat()
+
+        # Best validated VDOT in the rolling window
+        window_vdots = [
+            r["vdot"] for r in run_vdots[:i + 1]
+            if r["date"] >= cutoff_date and r["is_validated"]
+        ]
+
+        # Fallback: if no validated efforts, use all efforts
+        if not window_vdots:
+            window_vdots = [
+                r["vdot"] for r in run_vdots[:i + 1]
+                if r["date"] >= cutoff_date
+            ]
+
+        if not window_vdots:
+            continue
+
+        best_vdot = max(window_vdots)
+
+        # ---- Step 4: Predict race times from VDOT ----
+        preds = {}
+        for tname, tkm in target_distances:
+            pred_time = predict_time_from_vdot(best_vdot, tkm)
+            if pred_time:
+                pred_pace_s = (pred_time * 60) / tkm
+                preds[tname] = {
+                    "time_min": round(pred_time, 2),
+                    "time_str": _format_pred_time(pred_time),
+                    "pace": f"{int(pred_pace_s // 60)}:{int(pred_pace_s % 60):02d}",
+                }
+
+        if preds:
+            prediction_snapshots.append({
+                "date": run_date,
+                "predictions": preds,
+                "vdot": round(best_vdot, 1),
+            })
+
+    # Deduplicate by date (keep last)
     seen_dates = {}
     for snap in prediction_snapshots:
         seen_dates[snap["date"]] = snap
     unique_snapshots = sorted(seen_dates.values(), key=lambda s: s["date"])
 
-    # Calculate current vs period comparisons
+    # Current predictions
     current = unique_snapshots[-1]["predictions"] if unique_snapshots else {}
+    current_vdot = unique_snapshots[-1].get("vdot") if unique_snapshots else None
+
+    # ---- Step 5: Calculate trends ----
     trends = {}
     if len(unique_snapshots) >= 2:
         for period_key, days_back in [("1m", 30), ("3m", 90), ("6m", 180)]:
             cutoff = (dt_date.today() - timedelta(days=days_back)).isoformat()
-            # Find closest snapshot to cutoff date
             past_snap = None
             for s in unique_snapshots:
                 if s["date"] <= cutoff:
@@ -3764,6 +3887,7 @@ async def get_prediction_history():
     return {
         "prediction_history": unique_snapshots,
         "current": current,
+        "current_vdot": current_vdot,
         "trends": trends,
     }
 
