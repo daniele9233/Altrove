@@ -1559,6 +1559,13 @@ async def _weekly_report_scheduler():
 @api_router.get("/analytics")
 async def get_analytics():
     """Comprehensive analytics: VO2max, race predictions, pace/HR trends, zone distribution, goal gap"""
+    try:
+        return await _get_analytics_impl()
+    except Exception as e:
+        logger.error(f"Analytics error: {e}", exc_info=True)
+        raise HTTPException(500, detail=f"Analytics error: {str(e)}")
+
+async def _get_analytics_impl():
     import math
     runs = await db.runs.find({}, {"_id": 0}).sort("date", 1).to_list(2000)
     profile = await db.profile.find_one({}, {"_id": 0})
@@ -1650,31 +1657,32 @@ async def get_analytics():
             }
 
     # ---- PREDICTION TREND (compare with previous) ----
-    from datetime import date
-    today = date.today()
     prediction_trends = {}
-    prev_preds = await db.prediction_history.find_one({"type": "latest"}, {"_id": 0})
-    if prev_preds and race_predictions:
-        for dist_key, pred in race_predictions.items():
-            prev_time = prev_preds.get("predictions", {}).get(dist_key, {}).get("predicted_time_min")
-            if prev_time:
-                diff_secs = round((prev_time - pred["predicted_time_min"]) * 60)
-                prediction_trends[dist_key] = {
-                    "diff_seconds": diff_secs,
-                    "improved": diff_secs > 0,
-                }
+    try:
+        prev_preds = await db.prediction_history.find_one({"type": "latest"}, {"_id": 0})
+        if prev_preds and race_predictions:
+            for dist_key, pred in race_predictions.items():
+                prev_time = prev_preds.get("predictions", {}).get(dist_key, {}).get("predicted_time_min")
+                if prev_time:
+                    diff_secs = round((prev_time - pred["predicted_time_min"]) * 60)
+                    prediction_trends[dist_key] = {
+                        "diff_seconds": diff_secs,
+                        "improved": diff_secs > 0,
+                    }
 
-    # Save current predictions
-    if race_predictions:
-        await db.prediction_history.update_one(
-            {"type": "latest"},
-            {"$set": {
-                "type": "latest",
-                "predictions": race_predictions,
-                "updated_at": today.isoformat(),
-            }},
-            upsert=True
-        )
+        # Save current predictions
+        if race_predictions:
+            await db.prediction_history.update_one(
+                {"type": "latest"},
+                {"$set": {
+                    "type": "latest",
+                    "predictions": race_predictions,
+                    "updated_at": date.today().isoformat(),
+                }},
+                upsert=True
+            )
+    except Exception as e:
+        logger.error(f"Prediction trends error: {e}")
 
     # Target half marathon: 4:30/km = 94:55
     target_hm_time = 95.0
