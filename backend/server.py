@@ -1650,6 +1650,8 @@ async def get_analytics():
             }
 
     # ---- PREDICTION TREND (compare with previous) ----
+    from datetime import date
+    today = date.today()
     prediction_trends = {}
     prev_preds = await db.prediction_history.find_one({"type": "latest"}, {"_id": 0})
     if prev_preds and race_predictions:
