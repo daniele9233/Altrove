@@ -361,12 +361,180 @@ function CadenceLineChart({ data }: { data: { month: string; avg_cadence: number
   );
 }
 
+// ---- Decoupling Line Chart Component ----
+const DECOUPLING_CHART_HEIGHT = 180;
+
+function DecouplingLineChart({ data }: { data: any[] }) {
+  const [decTooltip, setDecTooltip] = useState<{ x: number; value: number; week: string; pace: string; dist: number } | null>(null);
+  if (!data || data.length < 2) return null;
+
+  const values = data.map(d => d.decoupling_pct);
+  // Scale: show from -1 to max+2, minimum range up to 10
+  const minVal = Math.min(...values, -1);
+  const maxVal = Math.max(...values, 10) + 2;
+  const range = maxVal - minVal || 10;
+
+  const chartW = SCREEN_WIDTH - 80 - 40;
+  const stepX = chartW / Math.max(data.length - 1, 1);
+
+  // Inverted: lower value = better = higher on chart
+  const toY = (val: number) => {
+    return ((val - minVal) / range) * DECOUPLING_CHART_HEIGHT;
+  };
+
+  const fmtWeek = (w: string) => {
+    try {
+      const parts = w.split('-');
+      return `${parts[2]}/${parts[1]}`;
+    } catch { return w; }
+  };
+
+  const dotColor = (val: number) => {
+    if (val < 3.5) return '#22c55e';
+    if (val < 5) return '#facc15';
+    if (val < 7.5) return '#f97316';
+    return '#ef4444';
+  };
+
+  // Zone backgrounds (green < 3.5, yellow 3.5-5, orange 5-7.5, red > 7.5)
+  const zones = [
+    { from: minVal, to: 3.5, color: '#22c55e10' },
+    { from: 3.5, to: 5, color: '#facc1510' },
+    { from: 5, to: 7.5, color: '#f9731610' },
+    { from: 7.5, to: maxVal, color: '#ef444410' },
+  ];
+
+  // Target line at 5%
+  const targetY = toY(5);
+
+  return (
+    <View style={{ height: DECOUPLING_CHART_HEIGHT + 40, marginTop: SPACING.sm }}>
+      {/* Y-axis labels */}
+      <View style={{ position: 'absolute', left: 0, top: 0, height: DECOUPLING_CHART_HEIGHT, justifyContent: 'space-between' }}>
+        <Text style={{ fontSize: 8, color: COLORS.textMuted }}>{maxVal.toFixed(0)}%</Text>
+        <Text style={{ fontSize: 8, color: COLORS.textMuted }}>{((minVal + maxVal) / 2).toFixed(0)}%</Text>
+        <Text style={{ fontSize: 8, color: COLORS.textMuted }}>{minVal.toFixed(0)}%</Text>
+      </View>
+
+      {/* Chart area */}
+      <View
+        style={{ marginLeft: 40, height: DECOUPLING_CHART_HEIGHT, position: 'relative' }}
+        onStartShouldSetResponder={() => true}
+        onMoveShouldSetResponder={() => true}
+        onResponderGrant={(e) => {
+          const touchX = e.nativeEvent.locationX;
+          const idx = Math.round(touchX / stepX);
+          const clamped = Math.max(0, Math.min(idx, data.length - 1));
+          const d = data[clamped];
+          setDecTooltip({
+            x: clamped * stepX,
+            value: d.decoupling_pct,
+            week: d.week,
+            pace: d.avg_pace,
+            dist: d.distance_km,
+          });
+        }}
+        onResponderRelease={() => setTimeout(() => setDecTooltip(null), 2000)}
+      >
+        {/* Zone backgrounds */}
+        {zones.map((z, i) => {
+          const top = toY(z.to);
+          const bottom = toY(z.from);
+          const height = Math.abs(bottom - top);
+          if (height <= 0) return null;
+          return (
+            <View key={`dzone-${i}`} style={{
+              position: 'absolute', left: 0, right: 0,
+              top: Math.min(top, bottom), height,
+              backgroundColor: z.color,
+            }} />
+          );
+        })}
+
+        {/* Target line at 5% */}
+        <View style={{
+          position: 'absolute', left: 0, right: 0,
+          top: targetY, height: 1,
+          borderWidth: 1, borderColor: '#f97316', borderStyle: 'dashed', opacity: 0.5,
+        }} />
+
+        {/* Lines between dots */}
+        {data.map((d, i) => {
+          if (i === 0) return null;
+          const prev = data[i - 1];
+          const x1 = (i - 1) * stepX, y1 = toY(prev.decoupling_pct);
+          const x2 = i * stepX, y2 = toY(d.decoupling_pct);
+          const dx = x2 - x1, dy = y2 - y1;
+          const length = Math.sqrt(dx * dx + dy * dy);
+          const angle = Math.atan2(dy, dx) * (180 / Math.PI);
+          return (
+            <View key={`dline-${i}`} style={{
+              position: 'absolute', left: x1, top: y1,
+              width: length, height: 2,
+              backgroundColor: COLORS.textSecondary,
+              transform: [{ rotate: `${angle}deg` }], transformOrigin: 'left center', opacity: 0.4,
+            }} />
+          );
+        })}
+
+        {/* Dots */}
+        {data.map((d, i) => (
+          <React.Fragment key={`ddot-${i}`}>
+            <View style={{
+              position: 'absolute', left: i * stepX - 5, top: toY(d.decoupling_pct) - 5,
+              width: 10, height: 10, borderRadius: 5,
+              backgroundColor: dotColor(d.decoupling_pct),
+            }} />
+            <Text style={{
+              position: 'absolute', left: i * stepX - 14, top: toY(d.decoupling_pct) - 18,
+              fontSize: 8, color: COLORS.text, fontWeight: '700', width: 30, textAlign: 'center',
+            }}>{d.decoupling_pct.toFixed(1)}</Text>
+          </React.Fragment>
+        ))}
+
+        {/* Tooltip */}
+        {decTooltip && (
+          <View style={{
+            position: 'absolute',
+            left: Math.max(0, Math.min(decTooltip.x - 40, chartW - 80)),
+            top: toY(decTooltip.value) - 52,
+            backgroundColor: COLORS.card,
+            borderRadius: 8, paddingHorizontal: 8, paddingVertical: 4,
+            borderWidth: 1, borderColor: dotColor(decTooltip.value), zIndex: 10,
+          }}>
+            <Text style={{ fontSize: 10, color: dotColor(decTooltip.value), fontWeight: '800' }}>
+              {decTooltip.value.toFixed(1)}%
+            </Text>
+            <Text style={{ fontSize: 8, color: COLORS.textMuted }}>
+              {decTooltip.pace}/km - {decTooltip.dist}km
+            </Text>
+            <Text style={{ fontSize: 8, color: COLORS.textMuted }}>{fmtWeek(decTooltip.week)}</Text>
+          </View>
+        )}
+      </View>
+
+      {/* X-axis labels */}
+      <View style={{ marginLeft: 40, flexDirection: 'row', marginTop: 4 }}>
+        {data.map((d, i) => (
+          <Text key={i} style={{
+            position: 'absolute', left: i * stepX - 14, fontSize: 7,
+            color: COLORS.textMuted, width: 30, textAlign: 'center',
+          }}>
+            {i % Math.max(1, Math.floor(data.length / 8)) === 0 ? fmtWeek(d.week) : ''}
+          </Text>
+        ))}
+      </View>
+    </View>
+  );
+}
+
 export default function ProgressiScreen() {
   const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
   const [analytics, setAnalytics] = useState<any>(null);
   const [cadenceHistory, setCadenceHistory] = useState<any[]>([]);
+  const [decouplingHistory, setDecouplingHistory] = useState<any[]>([]);
   const [tooltip, setTooltip] = useState<{ x: number; y: number; value: string; label: string } | null>(null);
 
   useFocusEffect(
@@ -379,12 +547,14 @@ export default function ProgressiScreen() {
     try {
       setLoading(true);
       setError(false);
-      const [data, cadenceData] = await Promise.all([
+      const [data, cadenceData, decouplingData] = await Promise.all([
         api.getAnalytics(),
         api.getCadenceHistory().catch(() => ({ cadence_history: [] })),
+        api.getDecouplingHistory().catch(() => ({ decoupling_history: [] })),
       ]);
       setAnalytics(data);
       setCadenceHistory(cadenceData.cadence_history || []);
+      setDecouplingHistory(decouplingData.decoupling_history || []);
     } catch (e) {
       console.error(e);
       setError(true);
@@ -706,6 +876,26 @@ export default function ProgressiScreen() {
             <CadenceLineChart data={cadenceHistory} />
             <Text style={styles.chartNote}>
               Punti verdi = cadenza a target (180+) — Linea tratteggiata = obiettivo
+            </Text>
+          </View>
+        )}
+
+        {/* Decoupling Trend */}
+        {decouplingHistory.length >= 2 && (
+          <View style={styles.sectionCard}>
+            <View style={styles.sectionHeader}>
+              <Ionicons name="pulse" size={20} color="#f97316" />
+              <Text style={styles.sectionTitle}>EFFICIENZA AEROBICA (TREND)</Text>
+            </View>
+            <Text style={styles.predBasedOn}>
+              Decoupling cardiaco per settimana — corse steady (CV passo {'<'}10%, {'\u2265'}4km)
+            </Text>
+            <DecouplingLineChart data={decouplingHistory} />
+            <Text style={styles.chartNote}>
+              {'<'} 3.5% = Eccellente | 3.5-5% = Buona | 5-7.5% = Da migliorare | {'>'} 7.5% = Insufficiente
+            </Text>
+            <Text style={[styles.chartNote, { marginTop: 2 }]}>
+              Linea tratteggiata = target 5% — Valori bassi = migliore efficienza aerobica
             </Text>
           </View>
         )}

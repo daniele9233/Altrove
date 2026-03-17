@@ -110,9 +110,7 @@ def _pace_to_seconds(pace_str: str) -> int:
         return 0
 
 def _generate_enhanced_analysis(run, planned_session, planned_week, profile=None, vdot=None, vdot_paces=None, recent_runs=None):
-    """Generate a coach-style analysis without AI — natural, varied, no template feel."""
-    import random
-    import hashlib
+    """Generate a structured coach-style analysis without AI — mirrors the Gemini output format."""
 
     run_type = run.get('run_type', 'unknown')
     dist = run.get('distance_km', 0) or 0
@@ -124,38 +122,66 @@ def _generate_enhanced_analysis(run, planned_session, planned_week, profile=None
     hr_pct = round(avg_hr / max_hr_profile * 100) if avg_hr and max_hr_profile else 0
     run_date = run.get('date', '')
 
-    # Use run data as seed for consistent but varied responses
-    seed_str = f"{run_date}-{dist}-{pace}-{avg_hr}"
-    seed = int(hashlib.md5(seed_str.encode()).hexdigest()[:8], 16)
-    rng = random.Random(seed)
-
     a_secs = _pace_to_seconds(pace)
 
     # Get VDOT reference paces
-    easy_secs = _pace_to_seconds(vdot_paces.get('easy', '')) if vdot_paces else 0
-    tempo_secs = _pace_to_seconds(vdot_paces.get('threshold', '')) if vdot_paces else 0
-    interval_secs = _pace_to_seconds(vdot_paces.get('interval', '')) if vdot_paces else 0
-    marathon_secs = _pace_to_seconds(vdot_paces.get('marathon', '')) if vdot_paces else 0
+    easy_pace = vdot_paces.get('easy', '') if vdot_paces else ''
+    threshold_pace = vdot_paces.get('threshold', '') if vdot_paces else ''
+    interval_pace = vdot_paces.get('interval', '') if vdot_paces else ''
+    marathon_pace = vdot_paces.get('marathon', '') if vdot_paces else ''
+    easy_secs = _pace_to_seconds(easy_pace)
+    tempo_secs = _pace_to_seconds(threshold_pace)
+    interval_secs = _pace_to_seconds(interval_pace)
+    marathon_secs = _pace_to_seconds(marathon_pace)
 
-    # Determine what kind of effort this was based on pace/HR
-    effort_type = "easy"
+    # Target pace for half marathon
+    target_pace = "4:30"
+    target_secs = _pace_to_seconds(target_pace)
+
+    # Determine effort type
+    effort_type = "medio aerobico"
+    effort_label = "Corsa a ritmo medio (medio aerobico / steady run)"
+    effort_reasons = []
     if a_secs > 0:
         if easy_secs > 0 and a_secs >= easy_secs - 10:
             effort_type = "easy"
+            effort_label = "Corsa lenta (easy / Z2)"
+            effort_reasons.append("Passo coerente con la zona easy Daniels")
+            if hr_pct > 0 and hr_pct <= 78:
+                effort_reasons.append(f"FC al {hr_pct}% della massima → zona aerobica bassa")
+            elif hr_pct > 78 and hr_pct <= 82:
+                effort_reasons.append(f"FC al {hr_pct}% della massima → zona aerobica moderata")
+            elif hr_pct > 82:
+                effort_reasons.append(f"FC al {hr_pct}% della massima → attenzione, un po' alta per un easy")
         elif marathon_secs > 0 and a_secs >= marathon_secs - 10:
             effort_type = "moderate"
+            effort_label = "Corsa a ritmo medio (medio aerobico / steady run)"
+            effort_reasons.append("Non è lenta (non sei in Z2 piena)")
+            effort_reasons.append("Non è tirata (non sei vicino al limite)")
+            if hr_pct > 0:
+                effort_reasons.append(f"FC al {hr_pct}% → zona aerobica alta / soglia bassa")
         elif tempo_secs > 0 and a_secs >= tempo_secs - 15:
             effort_type = "tempo"
+            effort_label = "Corsa in soglia (threshold / tempo run)"
+            effort_reasons.append(f"Passo vicino alla soglia Daniels ({threshold_pace}/km)")
+            if hr_pct > 0:
+                effort_reasons.append(f"FC al {hr_pct}% → zona soglia anaerobica")
         elif interval_secs > 0 and a_secs <= interval_secs + 15:
             effort_type = "fast"
+            effort_label = "Ripetute / Interval training"
+            effort_reasons.append(f"Passo nell'area interval Daniels ({interval_pace}/km)")
+            if hr_pct > 0:
+                effort_reasons.append(f"FC al {hr_pct}% → zona alta, sforzo intenso")
         else:
             effort_type = "moderate"
+            effort_label = "Corsa a ritmo medio (medio aerobico / steady run)"
+            if hr_pct > 0:
+                effort_reasons.append(f"FC al {hr_pct}% della massima")
+    if not effort_reasons:
+        effort_reasons.append("Classificazione basata su passo e tipo registrato")
 
     # HR assessment
     hr_too_high_for_easy = avg_hr and hr_pct > 82 and effort_type == "easy"
-    hr_appropriate = avg_hr and ((effort_type == "easy" and hr_pct <= 82) or
-                                  (effort_type == "tempo" and 82 <= hr_pct <= 92) or
-                                  (effort_type == "fast" and hr_pct >= 85))
 
     # Calculate weeks to race
     from datetime import date as date_cls
@@ -166,110 +192,224 @@ def _generate_enhanced_analysis(run, planned_session, planned_week, profile=None
     except:
         weeks_to_race = 0
 
-    parts = []
+    # Gap from target pace
+    pace_gap = a_secs - target_secs if a_secs > 0 and target_secs > 0 else 0
 
-    # ---- VARIED OPENINGS ----
-    openings_good = [
-        f"Bene, {dist}km a {pace}/km.",
-        f"Vediamo questa corsa: {dist} chilometri in {round(duration)} minuti.",
-        f"Ok, {round(duration)} minuti a {pace} di media.",
-        f"{dist}km fatti. Passo medio {pace}/km.",
-    ]
-    openings_concern = [
-        f"Guardiamo questi numeri: {dist}km a {pace}/km.",
-        f"Hmm, {dist}km a {pace}/km — analizziamo.",
-        f"Questa corsa merita attenzione: {dist}km, passo {pace}/km.",
-    ]
+    # Estimated race times based on current pace
+    est_10k_min = round(a_secs * 10 / 60) if a_secs > 0 else 0
+    est_half_min = round(a_secs * 21.1 / 60) if a_secs > 0 else 0
+    est_10k_str = f"{est_10k_min // 60}h{est_10k_min % 60:02d}" if est_10k_min >= 60 else f"{est_10k_min} min"
+    est_half_str = f"{est_half_min // 60}h{est_half_min % 60:02d}" if est_half_min >= 60 else f"{est_half_min} min"
 
+    # Duration formatting
+    dur_min = int(duration)
+    dur_sec = int((duration - dur_min) * 60)
+    dur_str = f"{dur_min}:{dur_sec:02d}"
+
+    # ── Build structured output ──
+    lines = []
+
+    # INTRO
+    lines.append(f"Ho analizzato la tua attività: ti faccio una lettura orientata al tuo obiettivo {target_pace}/km sulla mezza.\n")
+
+    # SECTION 1: Run data
+    lines.append("📊 Dati della corsa")
+    lines.append(f"* Distanza: {dist} km")
+    lines.append(f"* Tempo: {dur_str}")
+    lines.append(f"* Passo medio: {pace} min/km")
+    if avg_hr:
+        lines.append(f"* Frequenza cardiaca media: ~{avg_hr} bpm ({hr_pct}% FCmax)")
+    if max_hr_val:
+        lines.append(f"* FC massima: {max_hr_val} bpm")
+    lines.append("")
+
+    # SECTION 2: Workout classification
+    lines.append("🧠 Che tipo di allenamento è stato")
+    lines.append("Questa corsa è classificabile come:")
+    lines.append(f"👉 {effort_label}")
+    lines.append("Perché:")
+    for reason in effort_reasons:
+        lines.append(f"* {reason}")
+    if effort_type in ("easy", "moderate"):
+        lines.append("➡️ In pratica: allenamento di costruzione base + resistenza")
+    elif effort_type == "tempo":
+        lines.append("➡️ In pratica: lavoro sulla soglia anaerobica")
+    elif effort_type == "fast":
+        lines.append("➡️ In pratica: lavoro su VO2max e velocità")
+
+    # Plan comparison if available
     if planned_session:
         target_dist = planned_session.get('target_distance_km', 0) or 0
-        target_pace = planned_session.get('target_pace', '')
+        target_pace_plan = planned_session.get('target_pace', '')
         planned_type = planned_session.get('type', '')
-        t_secs = _pace_to_seconds(target_pace)
+        t_secs = _pace_to_seconds(target_pace_plan)
         pace_diff = (a_secs - t_secs) if (a_secs > 0 and t_secs > 0) else 0
+        lines.append("")
+        lines.append(f"📋 Confronto con il piano: sessione prevista era {planned_type} di {target_dist}km a {target_pace_plan}/km")
+        if abs(pace_diff) <= 15:
+            lines.append("✔️ Passo in linea con il piano")
+        elif pace_diff > 15:
+            lines.append(f"⚠️ Sei andato {abs(pace_diff)}s/km più lento del previsto")
+        else:
+            lines.append(f"⚠️ Sei andato {abs(pace_diff)}s/km più veloce del previsto")
+    lines.append("")
 
-        # Assess how the run went vs plan
-        on_target = abs(pace_diff) <= 15 and (not target_dist or abs(dist - target_dist) / max(target_dist, 1) <= 0.15)
-        too_fast = pace_diff < -15
-        too_slow = pace_diff > 15
+    # SECTION 3: How useful for goal
+    lines.append(f"🎯 Quanto è utile per il tuo obiettivo ({target_pace}/km)")
+    if effort_type == "easy":
+        lines.append("Utile per costruire la base aerobica. Le corse lente sono fondamentali, ma da sole non bastano per raggiungere l'obiettivo.")
+    elif effort_type == "moderate":
+        lines.append("Molto utile per costruire resistenza, ma non sufficiente da sola. Servono anche lavori specifici di soglia e ripetute.")
+    elif effort_type == "tempo":
+        lines.append("Molto utile! Il lavoro in soglia è fondamentale per abbassare il passo gara.")
+    elif effort_type == "fast":
+        lines.append("Utile per sviluppare velocità e VO2max. Complementare al lavoro di soglia e ai lunghi.")
+    lines.append("")
 
-        if on_target:
-            parts.append(rng.choice(openings_good))
-            parts.append(f"La sessione prevedeva {planned_type} di {target_dist}km a {target_pace}/km e tu hai fatto esattamente quello che dovevi.")
-            if hr_appropriate:
-                parts.append(f"La frequenza cardiaca a {avg_hr}bpm ({hr_pct}% della massima) è coerente con lo sforzo richiesto.")
-            elif hr_too_high_for_easy:
-                parts.append(f"Unico appunto: la FC a {avg_hr}bpm è alta per un {planned_type}. Dovrebbe stare sotto il 80% della massima, sei al {hr_pct}%. Prova a rallentare di 10-15 secondi al km la prossima volta.")
-        elif too_fast:
-            parts.append(rng.choice(openings_concern))
-            parts.append(f"Dovevi correre a {target_pace}/km e invece sei andato a {pace}/km — {abs(pace_diff)} secondi più veloce. ")
-            if planned_type in ('corsa_lenta', 'easy', 'lungo', 'recupero'):
-                parts.append("Nelle corse facili la velocità non conta, conta tenere la FC bassa e accumulare volume aerobico. Se spingi troppo nei lenti, arrivi stanco alle sedute di qualità che sono quelle che ti fanno migliorare davvero.")
-            else:
-                parts.append("Correre più forte del previsto non è sempre meglio. Se il piano dice soglia a un certo passo, quel passo è calibrato sul tuo VDOT attuale. Andare oltre rischia di compromettere il recupero per le sessioni successive.")
-        elif too_slow:
-            parts.append(rng.choice(openings_concern))
-            parts.append(f"Il target era {target_pace}/km, hai corso a {pace}/km — {abs(pace_diff)} secondi più lento.")
-            if planned_type in ('tempo', 'soglia', 'threshold', 'interval', 'ripetute'):
-                parts.append("Per le sedute di qualità devi cercare di stare sul passo previsto, altrimenti non stai stimolando la soglia anaerobica come serve. Se non riesci a tenere il passo, potrebbe essere un segnale di affaticamento o che il VDOT va ricalibrato.")
-            else:
-                parts.append("Non è un problema enorme su un lento, ma se il passo sta calando sistematicamente potrebbe indicare stanchezza accumulata. Controlla come dormi e mangi.")
+    # SECTION 4: What's going well
+    lines.append("👍 Cosa stai facendo bene")
+    positives = []
+    if dist >= 5:
+        positives.append(f"Buon volume: {dist}km è una distanza solida")
+    elif dist >= 3:
+        positives.append(f"Corsa di {dist}km — ok come sessione di mantenimento")
+    if avg_hr and hr_pct <= 85 and effort_type in ("easy", "moderate"):
+        positives.append(f"FC sotto controllo ({hr_pct}% FCmax) → hai margine di miglioramento")
+    if a_secs > 0 and a_secs < 360:
+        positives.append(f"Passo di {pace}/km è già un buon punto di partenza")
+    if not positives:
+        positives.append("Stai accumulando chilometri — la costanza è la base di tutto")
+    for p in positives:
+        lines.append(f"* {p}")
+    lines.append("")
 
-        # Distance deviation
-        if target_dist > 0:
-            dist_diff = dist - target_dist
-            if abs(dist_diff) > 1:
-                if dist_diff > 0:
-                    parts.append(f"Hai fatto {round(dist_diff, 1)}km in più del previsto — va bene se ti sentivi bene, ma non esagerare col volume non pianificato.")
-                else:
-                    parts.append(f"Hai tagliato {round(abs(dist_diff), 1)}km. Se è per stanchezza, ok, ascolta il corpo. Se è per fretta, cerca di completare la distanza.")
+    # SECTION 5: Gaps
+    lines.append("❗ Gap da colmare")
+    lines.append("Il tuo obiettivo è:")
+    lines.append(f"👉 {target_pace}/km per 21.1 km")
+    if pace_gap > 0:
+        lines.append(f"* Sei a circa +{pace_gap} sec/km dall'obiettivo")
+        lines.append(f"* E su distanza {'più corta' if dist < 21 else 'simile'} ({dist}km vs 21.1km)")
+    elif pace_gap < 0:
+        lines.append(f"* Sei {abs(pace_gap)} sec/km più veloce dell'obiettivo su {dist}km — ottimo segnale, ma la mezza è lunga")
+    if hr_too_high_for_easy:
+        lines.append(f"* FC troppo alta per un easy ({hr_pct}% FCmax) — devi imparare a correre più lento")
+    lines.append("")
+
+    # SECTION 6: Reality check
+    lines.append("🔥 Tradotto in realtà")
+    if est_10k_min > 0:
+        lines.append(f"Ad oggi sei circa a livello:")
+        lines.append(f"👉 10 km in ~{est_10k_str} (stimato dal passo attuale)")
+        lines.append(f"👉 Mezza maratona in ~{est_half_str} (proiezione)")
+    lines.append("Per raggiungere il tuo obiettivo devi arrivare a:")
+    lines.append("👉 Mezza maratona in ~1h35")
+    if weeks_to_race > 0:
+        if weeks_to_race > 30:
+            lines.append(f"Hai {weeks_to_race} settimane davanti — è un obiettivo assolutamente fattibile con costanza.")
+        elif weeks_to_race > 15:
+            lines.append(f"Mancano {weeks_to_race} settimane — il tempo c'è, ma devi essere costante.")
+        else:
+            lines.append(f"Mancano solo {weeks_to_race} settimane — il focus deve essere massimo.")
+    lines.append("")
+
+    # SECTION 7: Technical advice
+    lines.append("🧩 Cosa ti manca (analisi tecnica)")
+    lines.append("Per correre a 4:30/km sulla mezza ti servono 3 cose:")
+    lines.append("")
+    lines.append("1. Resistenza aerobica (fondamentale)")
+    lines.append("➡️ Devi reggere sforzi lunghi senza salire troppo di cuore")
+    if easy_pace:
+        lines.append(f"✔️ Allenamenti lenti a {easy_pace}/km (Z2)")
     else:
-        # Extra run (not planned)
-        parts.append(rng.choice(openings_good if effort_type in ('easy', 'moderate') else openings_concern))
-        parts.append("Questa corsa non era nel piano.")
+        lines.append("✔️ Allenamenti lenti in Z2 (FC <80% max)")
+    lines.append("")
+    lines.append("2. Soglia lattato")
+    lines.append("➡️ Devi spostare la soglia verso il basso")
+    if threshold_pace:
+        lines.append(f"✔️ Allenamenti tipo: 3x10 min a {threshold_pace}/km")
+    else:
+        lines.append("✔️ Allenamenti tipo: 3x10 min a passo soglia")
+    lines.append("")
+    lines.append("3. Velocità specifica")
+    lines.append("➡️ Devi abituare le gambe a 4:30/km")
+    if interval_pace:
+        lines.append(f"✔️ Ripetute: 6x1000 a {interval_pace}/km")
+    else:
+        lines.append("✔️ Ripetute: 6x1000 a 4:20-4:25/km")
+    lines.append("")
 
-        if effort_type == "easy" and not hr_too_high_for_easy:
-            parts.append("Come corsa facile aggiuntiva ci può stare — volume aerobico extra fa bene purché non ti tolga energie per le sedute chiave.")
-        elif effort_type == "easy" and hr_too_high_for_easy:
-            parts.append(f"La FC a {avg_hr}bpm è troppo alta per un lento. A {hr_pct}% della massima non stai correndo facile, stai facendo un medio. Rallenta.")
-        elif effort_type in ("tempo", "fast"):
-            parts.append("Attenzione: una seduta intensa fuori dal piano può interferire con il recupero. Le sedute di qualità vanno programmate, non improvvisate.")
+    # SECTION 8: Rating
+    lines.append("📈 Valutazione della corsa")
 
-        if vdot_paces:
-            easy_pace = vdot_paces.get('easy', '')
-            if easy_pace:
-                parts.append(f"Per riferimento, il tuo passo easy Daniels è {easy_pace}/km (VDOT {vdot}).")
+    # Calculate rating
+    rating = 6
+    if effort_type == "easy" and not hr_too_high_for_easy:
+        rating = 7
+    elif effort_type == "easy" and hr_too_high_for_easy:
+        rating = 5
+    elif effort_type == "moderate":
+        rating = 7
+    elif effort_type == "tempo":
+        rating = 8
+    elif effort_type == "fast":
+        rating = 7
 
-    # ---- TREND from recent runs ----
+    if planned_session:
+        t_secs_plan = _pace_to_seconds(planned_session.get('target_pace', ''))
+        pd = (a_secs - t_secs_plan) if (a_secs > 0 and t_secs_plan > 0) else 0
+        if abs(pd) <= 15:
+            rating = min(rating + 1, 10)
+        elif abs(pd) > 30:
+            rating = max(rating - 1, 3)
+
+    if dist >= 10:
+        rating = min(rating + 1, 10)
+
+    # Trend bonus
     if recent_runs and len(recent_runs) >= 3:
-        recent_paces = [_pace_to_seconds(r.get('avg_pace', '')) for r in recent_runs[:5] if _pace_to_seconds(r.get('avg_pace', '')) > 0]
-        if len(recent_paces) >= 3:
-            trend = recent_paces[0] - recent_paces[-1]
+        recent_paces_list = [_pace_to_seconds(r.get('avg_pace', '')) for r in recent_runs[:5] if _pace_to_seconds(r.get('avg_pace', '')) > 0]
+        if len(recent_paces_list) >= 3:
+            trend = recent_paces_list[0] - recent_paces_list[-1]
             if trend < -10:
-                parts.append("Guardando le ultime corse, il passo sta migliorando — buon segno.")
+                lines.append("📈 Trend positivo: il passo sta migliorando nelle ultime uscite!")
             elif trend > 15:
-                parts.append("Noto che il passo sta rallentando nelle ultime uscite. Potrebbe essere stanchezza accumulata — valuta un giorno di riposo extra.")
+                lines.append("📉 Attenzione: il passo sta rallentando — possibile stanchezza accumulata.")
 
-    # ---- CONTEXT: phase and weeks to race ----
+    rating_labels = {
+        3: "insufficiente", 4: "da migliorare", 5: "sufficiente",
+        6: "discreta", 7: "buona base", 8: "molto buona",
+        9: "ottima", 10: "eccellente"
+    }
+    lines.append(f"Voto: {rating}/10 ({rating_labels.get(rating, 'buona')})")
+    if effort_type in ("easy", "moderate"):
+        lines.append("✔️ Ottima per costruire la base aerobica")
+        lines.append("❌ Non abbastanza specifica per l'obiettivo 4:30/km")
+    elif effort_type == "tempo":
+        lines.append("✔️ Lavoro specifico sulla soglia")
+        lines.append("✔️ Direttamente utile per l'obiettivo")
+    elif effort_type == "fast":
+        lines.append("✔️ Buon lavoro di velocità")
+        lines.append("❌ Servono anche lunghi e soglia per la mezza")
+
+    # Phase context
     if planned_week:
         phase = planned_week.get('phase', '')
         if phase:
+            lines.append("")
             phase_comments = {
-                "Ripresa": "Sei in fase di ripresa — la priorità è ricostruire la base senza forzare. Pazienza.",
-                "Base Aerobica": "Fase di base aerobica: chilometri facili, costruisci il motore. Non cercare la velocità ora.",
-                "Sviluppo": "Fase di sviluppo: qui inizi a inserire lavori di qualità. Rispetta i recuperi tra le sedute.",
-                "Preparazione Specifica": "Preparazione specifica per la mezza: i lavori devono simulare lo sforzo gara.",
-                "Picco": "Sei nella fase di picco — massimo carico. Ascolta il corpo, il rischio infortunio è più alto.",
-                "Tapering": "Tapering: riduci il volume, mantieni l'intensità. Tra poco si corre.",
+                "Ripresa": "📌 Fase attuale: Ripresa — priorità ricostruire la base senza forzare.",
+                "Base Aerobica": "📌 Fase attuale: Base Aerobica — accumula km facili, costruisci il motore.",
+                "Sviluppo": "📌 Fase attuale: Sviluppo — inizia a inserire lavori di qualità.",
+                "Preparazione Specifica": "📌 Fase attuale: Preparazione Specifica — simula lo sforzo gara.",
+                "Picco": "📌 Fase attuale: Picco — massimo carico, ascolta il corpo.",
+                "Tapering": "📌 Fase attuale: Tapering — riduci volume, mantieni intensità.",
             }
             comment = phase_comments.get(phase)
             if comment:
-                parts.append(comment)
+                lines.append(comment)
 
-    if weeks_to_race > 0 and weeks_to_race <= 20:
-        parts.append(f"Mancano {weeks_to_race} settimane a Corralejo — ogni seduta conta.")
-
-    return " ".join(parts)
+    return "\n".join(lines)
 
 
 def _generate_basic_analysis(run, planned_session, planned_week):
@@ -1088,26 +1228,51 @@ OBIETTIVO: Mezza Maratona di Corralejo (Fuerteventura), 12 Dicembre 2026
 - Mancano {weeks_to_race} settimane alla gara
 - Passo obiettivo: {p_target_pace}/km → Tempo obiettivo: {p_target_time}
 
-COME ANALIZZARE OGNI CORSA:
-1. Guarda i NUMERI REALI della corsa (passo, FC, distanza, durata) e confrontali con la sessione pianificata
-2. Valuta se l'allenamento è stato PRODUTTIVO per l'obiettivo finale:
-   - Era un easy? Il passo e la FC erano davvero da easy (Z1-Z2, <80% FCmax)?
-   - Era un tempo/soglia? Ha mantenuto la zona anaerobica corretta?
-   - Era un lungo? Come ha gestito il pacing nella seconda metà?
-   - Era un interval? I recuperi erano giusti? L'intensità sufficiente?
-3. Inserisci la corsa nel CONTESTO del piano settimanale e della fase di allenamento
-4. Considera le ultime corse fornite per identificare TREND (miglioramento, stagnazione, sovrallenamento)
-5. Dai 1-2 consigli SPECIFICI e AZIONABILI per la prossima sessione
-6. Se l'atleta sta facendo troppo o troppo poco, dillo chiaramente
+COME ANALIZZARE OGNI CORSA — STRUTTURA OBBLIGATORIA:
+Rispondi SEMPRE seguendo questa struttura con le sezioni indicate. Usa emoji nei titoli delle sezioni.
+Parla come un coach serio, orientato all'obiettivo. Dai del tu. Tono diretto e schietto.
 
-REGOLE ASSOLUTE:
-- Parla come un coach vero, non come un software. Usa "tu", dai del tu.
-- Varia il tono: entusiasta se va bene, preoccupato se vedi segnali di sovrallenamento, motivante se è in calo
+SEZIONE 1 — INTRO (1-2 righe):
+Apri con "Ho analizzato la tua attività:" e una frase che inquadra il tipo di lettura che stai facendo.
+
+SEZIONE 2 — 📊 Dati della corsa:
+Elenca con bullet points: Distanza, Tempo, Passo medio, Frequenza cardiaca media (se disponibile).
+
+SEZIONE 3 — 🧠 Che tipo di allenamento è stato:
+Classifica la corsa (corsa lenta Z2, medio aerobico, soglia, ripetute, progressivo, gara, ecc.).
+Usa 👉 per indicare la classificazione. Spiega PERCHÉ con 2-3 punti basati su passo e FC.
+Confronta con i passi Daniels/VDOT.
+
+SEZIONE 4 — 🎯 Quanto è utile per il tuo obiettivo ({p_target_pace}/km sulla mezza):
+Valuta quanto questa corsa contribuisce all'obiettivo finale. Sii onesto.
+
+SEZIONE 5 — 👍 Cosa stai facendo bene:
+2-3 punti positivi specifici basati sui dati reali.
+
+SEZIONE 6 — ❗ Gap da colmare:
+Mostra il gap tra livello attuale e obiettivo con numeri concreti.
+Usa 👉 per evidenziare i dati chiave.
+
+SEZIONE 7 — 🔥 Tradotto in realtà:
+Stima i tempi gara attuali dell'atleta (10K, mezza) basandoti sul VDOT e sui dati.
+Mostra cosa deve diventare per raggiungere l'obiettivo.
+Indica se è fattibile e in che tempi.
+
+SEZIONE 8 — 🧩 Cosa ti manca (analisi tecnica):
+Identifica 2-3 aree di lavoro specifiche (es. resistenza aerobica, soglia lattato, velocità specifica).
+Per ognuna dai esempi concreti di allenamenti (es. "3x10 min a 4:40-4:45", "6x1000 a 4:20-4:25").
+
+SEZIONE 9 — 📈 Valutazione della corsa:
+Dai un voto da 1 a 10 con breve motivazione.
+Usa ✔️ per i punti forti e ❌ per le carenze.
+
+REGOLE:
 - Cita i passi Daniels/VDOT quando parli di zone e ritmi
-- NON usare format rigidi con emoji e titoloni. Scrivi un'analisi fluida, come se parlassi all'atleta dopo l'allenamento
-- Sii SPECIFICO: "hai corso a 5:15 ma il tuo passo easy Daniels è 5:40-6:00, stavi spingendo troppo" — non "buon allenamento, continua così"
-- Menziona quante settimane mancano alla gara quando è rilevante per il contesto
-- Lunghezza: 150-250 parole. Conciso ma sostanzioso."""
+- Sii SPECIFICO con i numeri: "hai corso a 5:15 ma il tuo passo easy Daniels è 5:40-6:00"
+- Se c'è la sessione pianificata, confronta con quella
+- Se ci sono corse recenti, identifica TREND (miglioramento, stagnazione, sovrallenamento)
+- Menziona quante settimane mancano alla gara
+- Lunghezza: 300-500 parole. Dettagliato e strutturato."""
 
     # ── Build user message with plan comparison ──
     run_info = f"""CORSA DA ANALIZZARE:
@@ -1779,14 +1944,14 @@ async def _get_analytics_impl():
     hr_zone_counts_4w = {"z1": 0, "z2": 0, "z3": 0, "z4": 0, "z5": 0}
     for r in recent_hr_runs:
         avg_hr = r["avg_hr"]
-        hr_pct = (avg_hr / user_max_hr) * 100
-        if hr_pct < 70:
+        # Use absolute BPM thresholds matching the user's actual zones
+        if avg_hr < 117:
             hr_zone_counts_4w["z1"] += 1
-        elif hr_pct < 80:
+        elif avg_hr <= 146:
             hr_zone_counts_4w["z2"] += 1
-        elif hr_pct < 87:
+        elif avg_hr <= 160:
             hr_zone_counts_4w["z3"] += 1
-        elif hr_pct < 93:
+        elif avg_hr <= 175:
             hr_zone_counts_4w["z4"] += 1
         else:
             hr_zone_counts_4w["z5"] += 1
@@ -3300,6 +3465,120 @@ async def get_cadence_history():
             })
 
     return {"cadence_history": cadence_history}
+
+
+@api_router.get("/decoupling-history")
+async def get_decoupling_history():
+    """Get cardiac decoupling trend for steady runs, grouped by week.
+
+    Cardiac decoupling measures aerobic efficiency drift during a run.
+    Formula: ((avg_hr_second_half - avg_hr_first_half) / avg_hr_first_half) * 100
+
+    Only considers 'steady' runs: pace CV < 10%, distance >= 4km.
+    Returns the best (lowest) decoupling per week.
+    """
+    from collections import defaultdict
+
+    runs = await db.runs.find(
+        {"splits": {"$exists": True, "$ne": None, "$ne": []}},
+        {"_id": 0, "id": 1, "date": 1, "splits": 1, "distance_km": 1,
+         "avg_pace": 1, "avg_hr": 1}
+    ).sort("date", 1).to_list(2000)
+
+    if not runs:
+        return {"decoupling_history": []}
+
+    def pace_to_secs(p):
+        try:
+            parts = p.split(":")
+            return int(parts[0]) * 60 + int(parts[1]) if len(parts) == 2 else 999
+        except Exception:
+            return 999
+
+    weekly = defaultdict(list)
+
+    for run in runs:
+        dist = run.get("distance_km", 0)
+        if dist < 4.0:
+            continue
+
+        splits = run.get("splits", [])
+        if not splits or len(splits) < 2:
+            continue
+
+        # Check splits have HR data
+        hr_splits = [s for s in splits if s.get("avg_hr") and s["avg_hr"] > 0]
+        if len(hr_splits) < 2:
+            continue
+
+        # Check if steady run: pace CV < 10%
+        pace_secs_list = []
+        for s in splits:
+            p = s.get("pace") or s.get("avg_pace", "")
+            ps = pace_to_secs(p)
+            if ps < 900:
+                pace_secs_list.append(ps)
+
+        if len(pace_secs_list) < 2:
+            continue
+
+        import statistics
+        mean_pace = statistics.mean(pace_secs_list)
+        stdev_pace = statistics.stdev(pace_secs_list) if len(pace_secs_list) > 1 else 0
+        cv = (stdev_pace / mean_pace * 100) if mean_pace > 0 else 100
+
+        if cv >= 10:
+            continue  # Not a steady run
+
+        # Calculate decoupling: first half HR vs second half HR
+        half = len(hr_splits) // 2
+        first_half = hr_splits[:half]
+        second_half = hr_splits[half:]
+
+        if not first_half or not second_half:
+            continue
+
+        avg_hr_first = sum(s["avg_hr"] for s in first_half) / len(first_half)
+        avg_hr_second = sum(s["avg_hr"] for s in second_half) / len(second_half)
+
+        if avg_hr_first <= 0:
+            continue
+
+        decoupling_pct = round(((avg_hr_second - avg_hr_first) / avg_hr_first) * 100, 2)
+
+        # Group by week (Monday)
+        run_date = run.get("date", "")
+        if len(run_date) < 10:
+            continue
+        from datetime import date as dt_date
+        try:
+            d = dt_date.fromisoformat(run_date[:10])
+            week_start = d - timedelta(days=d.weekday())  # Monday
+            week_key = week_start.isoformat()
+        except Exception:
+            continue
+
+        weekly[week_key].append({
+            "decoupling_pct": decoupling_pct,
+            "distance_km": round(dist, 1),
+            "date": run_date[:10],
+            "avg_pace": run.get("avg_pace", ""),
+        })
+
+    # Pick best (lowest) decoupling per week
+    decoupling_history = []
+    for week_key in sorted(weekly.keys()):
+        entries = weekly[week_key]
+        best = min(entries, key=lambda e: e["decoupling_pct"])
+        decoupling_history.append({
+            "week": week_key,
+            "decoupling_pct": best["decoupling_pct"],
+            "distance_km": best["distance_km"],
+            "date": best["date"],
+            "avg_pace": best["avg_pace"],
+        })
+
+    return {"decoupling_history": decoupling_history}
 
 
 @api_router.get("/runs/{run_id}/splits")

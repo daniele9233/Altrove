@@ -405,19 +405,37 @@ export default function RunDetailScreen() {
           const splitPaces = run.splits.map(s => paceToSeconds(s.pace)).filter(s => s > 0);
           const maxPace = Math.max(...splitPaces);
           const minPace = Math.min(...splitPaces);
-          const barMaxWidth = SCREEN_WIDTH - 160;
+          const hasHr = run.splits.some(s => s.hr);
+          const hasElev = run.splits.some(s => s.elevation_difference != null);
+          const barMaxWidth = SCREEN_WIDTH - 80 - (hasHr ? 60 : 0) - (hasElev ? 40 : 0);
+
+          // Detect interval/ripetute: CV > 15%
+          const paceAvg = splitPaces.reduce((a, b) => a + b, 0) / splitPaces.length;
+          const paceStdDev = Math.sqrt(splitPaces.reduce((sum, p) => sum + Math.pow(p - paceAvg, 2), 0) / splitPaces.length);
+          const paceCv = (paceStdDev / paceAvg) * 100;
+          const isIntervals = paceCv > 15;
 
           return (
             <View style={styles.splitsCard}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: SPACING.sm, marginBottom: SPACING.lg }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: SPACING.sm, marginBottom: SPACING.sm }}>
                 <Ionicons name="bar-chart" size={18} color={COLORS.lime} />
                 <Text style={styles.hrTitle}>SPLITS PER KM</Text>
               </View>
+              <Text style={{ fontSize: 10, color: COLORS.textMuted, marginBottom: SPACING.md, fontStyle: 'italic' }}>
+                Media: {run.avg_pace}/km
+              </Text>
+              {isIntervals && (
+                <View style={{ backgroundColor: COLORS.orange + '15', borderRadius: BORDER_RADIUS.sm, padding: SPACING.sm, marginBottom: SPACING.md }}>
+                  <Text style={{ fontSize: 10, color: COLORS.orange, fontStyle: 'italic' }}>
+                    Possibile allenamento di ripetute (alta variabilit{'à'} nel passo, CV {paceCv.toFixed(0)}%)
+                  </Text>
+                </View>
+              )}
               {run.splits.map((split, i) => {
                 const secs = paceToSeconds(split.pace);
                 if (secs <= 0) return null;
                 const barPct = maxPace > 0 ? (secs / maxPace) : 0.5;
-                const barW = Math.max(20, barPct * barMaxWidth);
+                const barW = Math.max(40, barPct * barMaxWidth);
                 const isFaster = secs < avgPaceSecs;
                 const isSlower = secs > avgPaceSecs;
                 const barColor = isFaster ? COLORS.green : isSlower ? COLORS.red : COLORS.textSecondary;
@@ -425,33 +443,20 @@ export default function RunDetailScreen() {
                 return (
                   <View key={i} style={styles.splitRow}>
                     <Text style={styles.splitKm}>{split.km}</Text>
-                    <View style={{ flex: 1 }}>
-                      <View style={[styles.splitBar, { width: barW, backgroundColor: barColor + '60' }]}>
-                        <Text style={[styles.splitPace, { color: barColor }]}>{split.pace}</Text>
-                      </View>
+                    <View style={[styles.splitBar, { width: barW, backgroundColor: barColor + '60' }]}>
+                      <Text style={[styles.splitPace, { color: '#fff' }]}>{split.pace}</Text>
                     </View>
-                    {split.hr && (
+                    {split.hr != null && (
                       <Text style={styles.splitHr}>{split.hr} bpm</Text>
                     )}
                     {split.elevation_difference != null && (
-                      <Text style={{ fontSize: 9, color: split.elevation_difference >= 0 ? '#ef4444' : '#22c55e', width: 35, textAlign: 'right' }}>
+                      <Text style={{ fontSize: 9, color: split.elevation_difference >= 0 ? '#ef4444' : '#22c55e', width: 38, textAlign: 'right' }}>
                         {split.elevation_difference >= 0 ? '+' : ''}{split.elevation_difference}m
                       </Text>
                     )}
                   </View>
                 );
               })}
-              <View style={styles.splitLegend}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-                  <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: COLORS.green }} />
-                  <Text style={{ fontSize: FONT_SIZES.xs, color: COLORS.textMuted }}>Faster than avg</Text>
-                </View>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-                  <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: COLORS.red }} />
-                  <Text style={{ fontSize: FONT_SIZES.xs, color: COLORS.textMuted }}>Slower than avg</Text>
-                </View>
-                <Text style={{ fontSize: FONT_SIZES.xs, color: COLORS.textMuted }}>Avg: {run.avg_pace}/km</Text>
-              </View>
             </View>
           );
         })()}
@@ -504,28 +509,32 @@ export default function RunDetailScreen() {
               {zones.map(z => {
                 const count = zoneCounts[z.label];
                 const pct = totalSplits > 0 ? Math.round((count / totalSplits) * 100) : 0;
+                const showInside = pct >= 10;
+                const showOutside = pct > 0 && pct < 10;
                 return (
-                  <View key={z.label} style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 6, gap: 8 }}>
+                  <View key={z.label} style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 6, gap: 6 }}>
                     <View style={{ width: 24, alignItems: 'center' }}>
                       <Text style={{ fontSize: 11, color: z.color, fontWeight: '800' }}>{z.label}</Text>
                     </View>
-                    <View style={{ flex: 1, height: 20, backgroundColor: COLORS.bg, borderRadius: 6, overflow: 'hidden' }}>
-                      <View style={{
-                        height: 20,
-                        width: `${Math.max(pct > 0 ? 3 : 0, pct)}%`,
-                        backgroundColor: z.color + '40',
-                        borderRadius: 6,
-                        justifyContent: 'center',
-                        paddingLeft: 4,
-                      }}>
-                        {pct >= 10 && (
-                          <Text style={{ fontSize: 9, color: z.color, fontWeight: '800' }}>{pct}%</Text>
-                        )}
+                    <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center' }}>
+                      <View style={{ flex: 1, height: 20, backgroundColor: COLORS.bg, borderRadius: 6, overflow: 'hidden', flexDirection: 'row', alignItems: 'center' }}>
+                        <View style={{
+                          height: 20,
+                          width: `${Math.max(pct > 0 ? 3 : 0, pct)}%`,
+                          backgroundColor: z.color + '40',
+                          borderRadius: 6,
+                          justifyContent: 'center',
+                          paddingHorizontal: 4,
+                        }}>
+                          {showInside && (
+                            <Text numberOfLines={1} style={{ fontSize: 9, color: z.color, fontWeight: '800' }}>{pct}%</Text>
+                          )}
+                        </View>
                       </View>
+                      {showOutside && (
+                        <Text style={{ fontSize: 9, color: z.color, fontWeight: '800', marginLeft: 4, minWidth: 24 }}>{pct}%</Text>
+                      )}
                     </View>
-                    {pct > 0 && pct < 10 && (
-                      <Text style={{ fontSize: 9, color: z.color, fontWeight: '800', width: 28 }}>{pct}%</Text>
-                    )}
                     <Text style={{ fontSize: 9, color: COLORS.textMuted, width: 65 }}>{z.range}</Text>
                   </View>
                 );
@@ -552,13 +561,16 @@ export default function RunDetailScreen() {
           if (!isConstantPace) {
             return (
               <View style={styles.decouplingCard}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: SPACING.sm, marginBottom: SPACING.sm }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: SPACING.sm, marginBottom: 2 }}>
                   <Ionicons name="pulse" size={18} color={COLORS.textMuted} />
-                  <Text style={styles.hrTitle}>DECOUPLING CARDIACO</Text>
+                  <Text style={styles.hrTitle}>EFFICIENZA AEROBICA</Text>
                 </View>
+                <Text style={{ fontSize: 9, color: COLORS.textMuted, marginBottom: SPACING.sm }}>Pa:Hr — Friel</Text>
                 <Text style={{ fontSize: FONT_SIZES.xs, color: COLORS.textMuted, fontStyle: 'italic' }}>
-                  Passo non costante (CV {paceCv.toFixed(1)}%) — decoupling non calcolabile.
-                  Serve una corsa a passo uniforme (easy/lungo/tempo).
+                  Corsa con passo variabile — il calcolo richiede un passo costante (es. corsa lenta)
+                </Text>
+                <Text style={{ fontSize: 9, color: COLORS.textMuted, marginTop: 4 }}>
+                  CV passo: {paceCv.toFixed(1)}%
                 </Text>
               </View>
             );
@@ -585,8 +597,8 @@ export default function RunDetailScreen() {
           const getDecouplingLabel = (d: number) => {
             if (d < 3.5) return 'Eccellente';
             if (d < 5) return 'Accettabile';
-            if (d < 7.5) return 'Drift significativo';
-            return 'Drift eccessivo';
+            if (d < 7.5) return 'Da migliorare';
+            return 'Insufficiente';
           };
 
           const dc = Math.abs(decoupling);
@@ -595,15 +607,16 @@ export default function RunDetailScreen() {
 
           return (
             <View style={styles.decouplingCard}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: SPACING.sm, marginBottom: SPACING.md }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: SPACING.sm, marginBottom: 2 }}>
                 <Ionicons name="pulse" size={18} color={dcColor} />
-                <Text style={styles.hrTitle}>DECOUPLING CARDIACO</Text>
+                <Text style={styles.hrTitle}>EFFICIENZA AEROBICA</Text>
                 <View style={{ marginLeft: 'auto', backgroundColor: dcColor + '20', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 8 }}>
                   <Text style={{ fontSize: FONT_SIZES.xs, color: dcColor, fontWeight: '800' }}>
                     {getDecouplingLabel(dc)}
                   </Text>
                 </View>
               </View>
+              <Text style={{ fontSize: 9, color: COLORS.textMuted, marginBottom: SPACING.md }}>Pa:Hr — Friel</Text>
 
               {/* Big decoupling value */}
               <View style={{ alignItems: 'center', marginBottom: SPACING.md }}>
@@ -611,20 +624,20 @@ export default function RunDetailScreen() {
                   {decoupling > 0 ? '+' : ''}{decoupling.toFixed(1)}%
                 </Text>
                 <Text style={{ fontSize: FONT_SIZES.xs, color: COLORS.textMuted, marginTop: 2 }}>
-                  drift FC (Pa:Hr — Friel)
+                  drift frequenza cardiaca
                 </Text>
               </View>
 
               {/* First vs Second half comparison */}
               <View style={{ flexDirection: 'row', gap: SPACING.md }}>
                 <View style={{ flex: 1, backgroundColor: COLORS.bg, borderRadius: BORDER_RADIUS.md, padding: SPACING.md, alignItems: 'center' }}>
-                  <Text style={{ fontSize: 9, color: COLORS.textMuted, fontWeight: '700', letterSpacing: 1, marginBottom: SPACING.xs }}>1ª METÀ</Text>
+                  <Text style={{ fontSize: 9, color: COLORS.textMuted, fontWeight: '700', letterSpacing: 1, marginBottom: SPACING.xs }}>Prima met{'à'}</Text>
                   <Text style={{ fontSize: FONT_SIZES.lg, color: COLORS.text, fontWeight: '800' }}>{Math.round(avgHrFirst)} bpm</Text>
                   <Text style={{ fontSize: FONT_SIZES.xs, color: COLORS.textSecondary }}>{formatPaceSecs(avgPaceFirst)}/km</Text>
                   <Text style={{ fontSize: 9, color: COLORS.textMuted }}>km 1-{halfIdx}</Text>
                 </View>
                 <View style={{ flex: 1, backgroundColor: COLORS.bg, borderRadius: BORDER_RADIUS.md, padding: SPACING.md, alignItems: 'center' }}>
-                  <Text style={{ fontSize: 9, color: COLORS.textMuted, fontWeight: '700', letterSpacing: 1, marginBottom: SPACING.xs }}>2ª METÀ</Text>
+                  <Text style={{ fontSize: 9, color: COLORS.textMuted, fontWeight: '700', letterSpacing: 1, marginBottom: SPACING.xs }}>Seconda met{'à'}</Text>
                   <Text style={{ fontSize: FONT_SIZES.lg, color: dcColor, fontWeight: '800' }}>{Math.round(avgHrSecond)} bpm</Text>
                   <Text style={{ fontSize: FONT_SIZES.xs, color: COLORS.textSecondary }}>{formatPaceSecs(avgPaceSecond)}/km</Text>
                   <Text style={{ fontSize: 9, color: COLORS.textMuted }}>km {halfIdx + 1}-{splitsWithHr.length}</Text>
@@ -632,11 +645,14 @@ export default function RunDetailScreen() {
               </View>
 
               {/* Explanation */}
-              <Text style={{ fontSize: 9, color: COLORS.textMuted, marginTop: SPACING.md, fontStyle: 'italic', textAlign: 'center' }}>
-                {'<'}3.5% = aerobicamente efficiente • 3.5-5% = accettabile • {'>'}5% = efficienza da migliorare
-              </Text>
-              <Text style={{ fontSize: 9, color: COLORS.textMuted, marginTop: 2, textAlign: 'center' }}>
-                Variazione passo: CV {paceCv.toFixed(1)}% (costante)
+              <View style={{ marginTop: SPACING.md, backgroundColor: COLORS.bg, borderRadius: BORDER_RADIUS.sm, padding: SPACING.sm }}>
+                <Text style={{ fontSize: 9, color: COLORS.green, marginBottom: 2 }}>{'<'} 3.5% = Base aerobica eccellente</Text>
+                <Text style={{ fontSize: 9, color: COLORS.textSecondary, marginBottom: 2 }}>3.5-5% = Buona efficienza</Text>
+                <Text style={{ fontSize: 9, color: COLORS.orange, marginBottom: 2 }}>5-7.5% = Base aerobica da migliorare</Text>
+                <Text style={{ fontSize: 9, color: COLORS.red }}>{'>'} 7.5% = Efficienza insufficiente — serve pi{'ù'} volume a bassa intensit{'à'}</Text>
+              </View>
+              <Text style={{ fontSize: 9, color: COLORS.textMuted, marginTop: SPACING.sm, textAlign: 'center' }}>
+                CV passo: {paceCv.toFixed(1)}% (costante)
               </Text>
             </View>
           );
@@ -1091,7 +1107,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     marginBottom: 6,
-    gap: SPACING.sm,
+    gap: 6,
   },
   splitKm: {
     fontSize: FONT_SIZES.xs,
