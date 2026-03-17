@@ -20,6 +20,8 @@ export default function RunDetailScreen() {
   const [planned, setPlanned] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [analyzing, setAnalyzing] = useState(false);
+  const [racePredictions, setRacePredictions] = useState<any>(null);
+  const [predictionTrends, setPredictionTrends] = useState<any>(null);
 
   useEffect(() => {
     loadRun();
@@ -31,6 +33,8 @@ export default function RunDetailScreen() {
       setRun(data.run);
       setAnalysis(data.analysis);
       setPlanned(data.planned_session ?? null);
+      setRacePredictions(data.race_predictions ?? null);
+      setPredictionTrends(data.prediction_trends ?? null);
     } catch (e) {
       console.error(e);
     } finally {
@@ -406,8 +410,7 @@ export default function RunDetailScreen() {
           const maxPace = Math.max(...splitPaces);
           const minPace = Math.min(...splitPaces);
           const hasHr = run.splits.some(s => s.hr);
-          const hasElev = run.splits.some(s => s.elevation_difference != null);
-          const barMaxWidth = SCREEN_WIDTH - 80 - (hasHr ? 60 : 0) - (hasElev ? 40 : 0);
+          const barMaxWidth = SCREEN_WIDTH - 80 - (hasHr ? 70 : 0);
 
           // Detect interval/ripetute: CV > 15%
           const paceAvg = splitPaces.reduce((a, b) => a + b, 0) / splitPaces.length;
@@ -446,14 +449,7 @@ export default function RunDetailScreen() {
                     <View style={[styles.splitBar, { width: barW, backgroundColor: barColor + '60' }]}>
                       <Text style={[styles.splitPace, { color: '#fff' }]}>{split.pace}</Text>
                     </View>
-                    {split.hr != null && (
-                      <Text style={styles.splitHr}>{split.hr} bpm</Text>
-                    )}
-                    {split.elevation_difference != null && (
-                      <Text style={{ fontSize: 9, color: split.elevation_difference >= 0 ? '#ef4444' : '#22c55e', width: 38, textAlign: 'right' }}>
-                        {split.elevation_difference >= 0 ? '+' : ''}{split.elevation_difference}m
-                      </Text>
-                    )}
+                    <Text style={styles.splitHr}>{split.hr != null ? `${split.hr} bpm` : ''}</Text>
                   </View>
                 );
               })}
@@ -687,6 +683,65 @@ export default function RunDetailScreen() {
               color={COLORS.textSecondary}
             />
             <Text style={styles.notesText}>{run.notes}</Text>
+          </View>
+        )}
+
+        {/* Race Predictions with Trends */}
+        {racePredictions && Object.keys(racePredictions).length > 0 && (
+          <View style={styles.splitsCard}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: SPACING.sm, marginBottom: SPACING.sm }}>
+              <Ionicons name="trophy" size={18} color={COLORS.lime} />
+              <Text style={styles.hrTitle}>PREVISIONI GARA</Text>
+            </View>
+            <Text style={{ fontSize: 10, color: COLORS.textMuted, marginBottom: SPACING.md, fontStyle: 'italic' }}>
+              Basate sulla tua forma attuale
+            </Text>
+            {Object.entries(racePredictions).map(([dist, pred]: [string, any]) => {
+              const isGoal = dist === '21.1km';
+              const trend = predictionTrends?.[dist];
+              return (
+                <View key={dist} style={{
+                  flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
+                  paddingVertical: SPACING.sm,
+                  borderBottomWidth: 1, borderBottomColor: COLORS.cardBorder,
+                  ...(isGoal ? { backgroundColor: COLORS.lime + '08', marginHorizontal: -SPACING.sm, paddingHorizontal: SPACING.sm, borderRadius: BORDER_RADIUS.sm } : {}),
+                }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: SPACING.xs }}>
+                    <Text style={{ fontSize: FONT_SIZES.body, color: isGoal ? COLORS.lime : COLORS.text, fontWeight: '900' }}>{dist}</Text>
+                    {isGoal && (
+                      <View style={{ backgroundColor: COLORS.lime + '20', paddingHorizontal: 6, paddingVertical: 1, borderRadius: 6 }}>
+                        <Text style={{ fontSize: 8, color: COLORS.lime, fontWeight: '800' }}>OBIETTIVO</Text>
+                      </View>
+                    )}
+                  </View>
+                  <View style={{ alignItems: 'flex-end' }}>
+                    <Text style={{ fontSize: FONT_SIZES.body, color: COLORS.text, fontWeight: '800' }}>{pred.predicted_time_str}</Text>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                      <Text style={{ fontSize: 10, color: COLORS.textMuted }}>{pred.predicted_pace}/km</Text>
+                      {trend && trend.diff_seconds !== 0 && (
+                        <View style={{
+                          flexDirection: 'row', alignItems: 'center',
+                          backgroundColor: trend.improved ? '#22c55e20' : '#ef444420',
+                          paddingHorizontal: 4, paddingVertical: 1, borderRadius: 4,
+                        }}>
+                          <Ionicons
+                            name={trend.improved ? "caret-down" : "caret-up"}
+                            size={10}
+                            color={trend.improved ? '#22c55e' : '#ef4444'}
+                          />
+                          <Text style={{
+                            fontSize: 9, fontWeight: '800',
+                            color: trend.improved ? '#22c55e' : '#ef4444',
+                          }}>
+                            {Math.abs(trend.diff_seconds)}s
+                          </Text>
+                        </View>
+                      )}
+                    </View>
+                  </View>
+                </View>
+              );
+            })}
           </View>
         )}
 
@@ -1129,7 +1184,7 @@ const styles = StyleSheet.create({
   splitHr: {
     fontSize: FONT_SIZES.xs,
     color: COLORS.textMuted,
-    width: 55,
+    width: 65,
     textAlign: 'right',
   },
   splitLegend: {

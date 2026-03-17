@@ -1131,7 +1131,67 @@ async def get_run(run_id: str):
                     }
                     break
 
-    return {"run": run, "analysis": analysis, "planned_session": planned_session}
+    # ---- Race predictions for this run ----
+    race_predictions = {}
+    prediction_trends = {}
+    try:
+        vdot_val, _ = await calculate_current_vdot()
+        if vdot_val:
+            # Use Riegel formula from best post-injury efforts
+            all_runs = await db.runs.find({"date": {"$gte": "2026-01-01"}}, {"_id": 0}).to_list(2000)
+            best_efforts_map = {}
+            for target_dist in [10, 6, 5, 4]:
+                candidates = [r for r in all_runs if abs(r.get("distance_km", 0) - target_dist) < 0.5
+                               and r.get("duration_minutes", 0) > 0]
+                if candidates:
+                    def _pace_secs(p):
+                        if not p or ':' not in p: return 9999
+                        pts = p.split(':')
+                        try: return int(pts[0]) * 60 + int(pts[1])
+                        except: return 9999
+                    best = min(candidates, key=lambda r: _pace_secs(r.get("avg_pace", "9:99")))
+                    best_efforts_map[f"{target_dist}km"] = {
+                        "distance_km": best["distance_km"],
+                        "duration_minutes": best["duration_minutes"],
+                        "avg_pace": best.get("avg_pace"),
+                        "date": best.get("date"),
+                    }
+
+            ref_run_pred = best_efforts_map.get("10km") or best_efforts_map.get("6km") or best_efforts_map.get("5km") or best_efforts_map.get("4km")
+            if ref_run_pred:
+                ref_dist = ref_run_pred["distance_km"]
+                ref_time_min = ref_run_pred["duration_minutes"]
+                for target_name, target_km in [("5km", 5), ("10km", 10), ("21.1km", 21.1)]:
+                    pred_time = ref_time_min * (target_km / ref_dist) ** 1.06
+                    pred_pace_s = (pred_time * 60) / target_km
+                    pred_pace = f"{int(pred_pace_s // 60)}:{int(pred_pace_s % 60):02d}"
+                    race_predictions[target_name] = {
+                        "predicted_time_min": round(pred_time, 1),
+                        "predicted_time_str": f"{int(pred_time // 60)}:{int(pred_time % 60):02d}:{int((pred_time % 1) * 60):02d}",
+                        "predicted_pace": pred_pace,
+                    }
+
+            # Get prediction trends
+            prev_preds = await db.prediction_history.find_one({"type": "latest"}, {"_id": 0})
+            if prev_preds and race_predictions:
+                for dist_key, pred in race_predictions.items():
+                    prev_time = prev_preds.get("predictions", {}).get(dist_key, {}).get("predicted_time_min")
+                    if prev_time:
+                        diff_secs = round((prev_time - pred["predicted_time_min"]) * 60)
+                        prediction_trends[dist_key] = {
+                            "diff_seconds": diff_secs,
+                            "improved": diff_secs > 0,
+                        }
+    except Exception as e:
+        logger.error(f"Race predictions in get_run error: {e}")
+
+    return {
+        "run": run,
+        "analysis": analysis,
+        "planned_session": planned_session,
+        "race_predictions": race_predictions,
+        "prediction_trends": prediction_trends,
+    }
 
 @api_router.post("/runs")
 async def create_run(run: RunCreate):

@@ -934,7 +934,7 @@ export default function ProgressiScreen() {
                     <View style={{ flex: 1, height: 22, backgroundColor: COLORS.bg, borderRadius: 6, overflow: 'hidden' }}>
                       <View style={{
                         height: 22,
-                        width: `${Math.max(2, z.pct)}%`,
+                        width: `${Math.max(2, (z.pct / maxPct) * 100)}%`,
                         backgroundColor: z.color + '40',
                         borderRadius: 6,
                         justifyContent: 'center',
