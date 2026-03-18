@@ -19,6 +19,7 @@ const CAT_COLORS: Record<string, string> = {
   half_marathon: '#ef4444',
   science: '#06b6d4',
   speed: '#eab308',
+  fun: '#ec4899',
 };
 
 export default function BadgesScreen() {

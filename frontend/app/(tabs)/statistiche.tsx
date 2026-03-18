@@ -144,12 +144,19 @@ export default function StatisticheScreen() {
         {/* Race Predictions */}
         <SectionTitle icon="podium" title="PREVISIONI GARA" />
         <View style={styles.predGrid}>
-          {Object.entries(race_predictions || {}).map(([dist, pred]: [string, any]) => {
-            const isHM = dist === '21.1km';
+          {[
+            { key: '5km', label: '5 km' },
+            { key: '10km', label: '10 km' },
+            { key: '21.1km', label: '21.1 km' },
+            { key: '42.2km', label: '42.2 km' },
+          ].map(({ key, label }) => {
+            const pred = (race_predictions || {})[key];
+            if (!pred) return null;
+            const isHM = key === '21.1km';
             return (
-              <View key={dist} style={[styles.predCard, isHM && styles.predCardHM]}>
-                <Text style={styles.predDist}>{dist}</Text>
-                <Text style={[styles.predTime, isHM && { color: COLORS.lime }]}>{pred.predicted_time_str}</Text>
+              <View key={key} style={[styles.predCard, isHM && styles.predCardHM]}>
+                <Text style={styles.predDist}>{label}</Text>
+                <Text style={[styles.predTime, isHM && { color: COLORS.lime }]} numberOfLines={1} adjustsFontSizeToFit>{pred.predicted_time_str}</Text>
                 <Text style={styles.predPace}>{pred.predicted_pace}/km</Text>
               </View>
             );

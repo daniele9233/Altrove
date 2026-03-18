@@ -360,16 +360,17 @@ Storico evoluzione prestazioni:
 - **Best efforts**: migliori prestazioni per distanza con passo e FC
 
 ### 12. 🏆 Badge e Trofei
-Sistema gamification con 46 badge in 7 categorie:
-- **🏃‍♂️ Milestone distanza** (6): da 100km a Giro del mondo (40.075km)
-- **📅 Costanza** (7): Settimana perfetta, Mese d'oro, Fedeltà, Runner instancabile, 365 giorni, Sveglia presto, Notturno
-- **📈 Miglioramenti** (10): VDOT +1/+3/+5, VDOT 50, PB 5K/10K/Mezza, Doppio record, Sub 50min 10K, Sub 4:30/km
-- **🏋️ Allenamento** (6): Re ripetute, Lungo, Scalatore, Progressivo, Forza, Cross-training
-- **🎯 Mezza maratona** (6): 18km, Ritmo gara, Piano rispettato, Tapering, Giorno gara, Obiettivo centrato
-- **🧠 Scienza** (5): Zona ideale 80/20, Efficienza aerobica, Rilevatore ripetute, Injury Risk, Cadenza 180
-- **💨 Velocità lampo** (8): 400m → 3km con soglie passo specifiche
+Sistema gamification con **100+ badge** in 8 categorie:
+- **🏃‍♂️ Milestone distanza** (11): da 100km a 10.000km + Giro del mondo (40.075km)
+- **📅 Costanza** (16): Primi 10/25/50/100/200 corse, Settimana perfetta, Streak 3/5 settimane, Mese d'oro, Fedeltà, Runner instancabile, 365 giorni, Sveglia presto, Notturno, Guerriero weekend
+- **📈 Miglioramenti** (21): VDOT +1/+2/+3/+5/+8/+10, VDOT 45/50/55, PB 5K/10K/Mezza, Sub 25/22/20 min 5K, Sub 50/45 min 10K, Sub 1:45/1:40 Mezza, Doppio record, Passo migliorato
+- **🏋️ Allenamento** (16): Re/Maestro ripetute, Lungo 20+/25km/30km, Scalatore, Progressivo, Negative split, Volume sett 40/60/80km, Back to back, Doppia giornata, Forza, Cross-training
+- **🎯 Mezza maratona** (10): 15km, 18km, 20km, Ritmo gara, Piano rispettato, Tapering, Sub 2h, Giorno gara, Obiettivo centrato, Corralejo Finisher
+- **🧠 Scienza** (11): Zona ideale 80/20, Cuore efficiente, Mese polarizzato, Varietà perfetta, Maestro recupero, FC Max trovata, Data Nerd, Rilevatore ripetute, Injury Risk, Cadenza 180
+- **💨 Velocità lampo** (10): 200m → 10km con soglie passo specifiche
+- **🎉 Fun & Speciali** (7): Primo passo, Prima settimana, Il Ritorno, Maratona mensile, Mese da 100km, Corsa 1h/2h
 
-Schermata dedicata (`badges.tsx`) accessibile da Profilo → Medaglie, con progress bar, categorie espandibili, stati locked/unlocked.
+Badge azzerati e ricominciati dal **23 marzo 2026**. Schermata dedicata (`badges.tsx`) accessibile da Profilo → Medaglie, con progress bar, categorie espandibili, stati locked/unlocked.
 Ricalcolo automatico dopo ogni sync Strava.
 
 ### 13. 🧮 Calcolatore
@@ -516,7 +517,7 @@ Base URL: `https://corralejo-backend.onrender.com/api`
 | GET | `/best-efforts` | Migliori prestazioni per distanza |
 | GET | `/runs/{run_id}/splits` | Splits per km di una corsa specifica |
 | GET | `/decoupling-history` | Storico decoupling cardiaco settimanale (solo corse steady, CV<10%) |
-| GET | `/badges` | 46 badge gamification con progresso, stato unlock, categorie |
+| GET | `/badges` | 100+ badge gamification con progresso, stato unlock, categorie |
 
 ### AI
 | Metodo | Endpoint | Descrizione |
@@ -801,9 +802,12 @@ npx expo run:android
 - [x] **Logo Corralejo** — Icona app con runner stilizzato + sfondo gradient (adaptive icon Android)
 - [x] **Nome app** — "Corralejo 2026" (era "frontend")
 - [x] **Weekly Report push** — Riepilogo settimanale automatico: km fatti vs target, aderenza %, VDOT
-- [x] **Badge e Trofei (46 badge)** — Sistema gamification completo con 46 badge in 7 categorie: Milestone distanza (6), Costanza (7), Miglioramenti VDOT/PB (10), Tipi allenamento (6), Obiettivi mezza maratona (6), Analisi scienza (5), Velocità lampo (8). Schermata dedicata con progress bar, categorie espandibili, sbloccati/bloccati. Calcolo automatico dopo sync Strava. Endpoint `GET /api/badges`
+- [x] **Badge e Trofei (100+ badge)** — Sistema gamification con 100+ badge in 8 categorie. Espandito da 46 a 100+ con nuove categorie Fun & Speciali, sub-obiettivi tempo (Sub 25/22/20 min 5K, Sub 45 10K, Sub 1:45/1:40 Mezza), volume settimanale, negative split, double day, e altro. Badge azzerati dal 23 marzo 2026. Endpoint `GET /api/badges`
 - [x] **Fix previsioni gara** — Rimosso VDOT da segmenti/splits che gonfiava le previsioni (passi irrealistici come 3:34/km). Ora usa SOLO VDOT da corse complete con validazione pace 2:30-9:00/km. Previsioni coerenti con tabella Strava reale
 - [x] **Fix barre zone HR** — Barre Z1-Z5 ora allineate correttamente (non più normalizzate al massimo, usano percentuale assoluta)
+- [x] **Fix previsioni gara v2** — Previsioni ora basate su VDOT calcolato dalla soglia anaerobica (non dal best effort gonfiato). Aggiunto fattore fatica per distanze lunghe (1.02x HM, 1.04x Marathon). Valori coerenti con tabella Strava reale
+- [x] **Tabella previsioni gara** — Su Progressi, sostituito grafico con tabella interattiva: data, tempo, passo, VDOT, trend (frecce verdi/rosse). Filtri periodo Oggi/1M/3M/6M e distanza
+- [x] **Fix FC max da profilo** — Zone HR ora usano FC max reale dal profilo utente invece di valore hardcoded 180
 
 ---
 

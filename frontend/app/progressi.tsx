@@ -1068,8 +1068,8 @@ export default function ProgressiScreen() {
               );
             })()}
 
-            {/* Prediction history chart for selected distance - Strava style */}
-            {predictionData.prediction_history && predictionData.prediction_history.length >= 2 && (() => {
+            {/* Prediction history table for selected distance */}
+            {predictionData.prediction_history && predictionData.prediction_history.length >= 1 && (() => {
               // Filter data based on period
               const now = new Date();
               let cutoffDate = '2025-01-01';
@@ -1077,210 +1077,87 @@ export default function ProgressiScreen() {
               else if (selectedPeriod === '3m') cutoffDate = new Date(now.getTime() - 90 * 86400000).toISOString().slice(0, 10);
               else if (selectedPeriod === '6m') cutoffDate = new Date(now.getTime() - 180 * 86400000).toISOString().slice(0, 10);
 
-              const filteredData = predictionData.prediction_history.filter(
-                (s: any) => s.date >= cutoffDate && s.predictions[selectedDistance]
-              );
-              if (filteredData.length < 2) return null;
+              const filteredData = predictionData.prediction_history
+                .filter((s: any) => s.date >= cutoffDate && s.predictions[selectedDistance])
+                .slice(-10); // Last 10 entries max
+              if (filteredData.length === 0) return null;
 
-              const timeValues = filteredData.map((s: any) => s.predictions[selectedDistance].time_min);
-              const maxTime = Math.max(...timeValues);
-              const minTime = Math.min(...timeValues);
-              const rangePad = Math.max((maxTime - minTime) * 0.15, 1);
-              const chartMin = minTime - rangePad;
-              const chartMax = maxTime + rangePad;
-              const rangeTime = chartMax - chartMin || 5;
-
-              const predChartH = 200;
-              const predChartW = SCREEN_WIDTH - 120;
-              const chartLeft = 60;
-              const stepX = predChartW / Math.max(filteredData.length - 1, 1);
-
-              // Y axis INVERTED: lower time (better) = TOP, higher time (worse) = BOTTOM
-              const toY = (val: number) => ((val - chartMin) / rangeTime) * predChartH;
-
-              const formatTime = (min: number) => {
-                const totalSecs = Math.round(min * 60);
-                const h = Math.floor(totalSecs / 3600);
-                const m = Math.floor((totalSecs % 3600) / 60);
-                const s = totalSecs % 60;
-                if (h > 0) return `${h}:${m.toString().padStart(2, '0')}`;
-                return `${m}:${s.toString().padStart(2, '0')}`;
+              const monthNames: Record<string, string> = {
+                '01': 'Gen', '02': 'Feb', '03': 'Mar', '04': 'Apr', '05': 'Mag', '06': 'Giu',
+                '07': 'Lug', '08': 'Ago', '09': 'Set', '10': 'Ott', '11': 'Nov', '12': 'Dic',
               };
 
-              const formatDateRange = (d: string) => {
+              const formatDate = (d: string) => {
                 try {
-                  const dt = new Date(d);
-                  const weekStart = new Date(dt.getTime() - dt.getDay() * 86400000);
-                  const weekEnd = new Date(weekStart.getTime() + 6 * 86400000);
-                  const monthNames: Record<number, string> = {
-                    0: 'gen', 1: 'feb', 2: 'mar', 3: 'apr', 4: 'mag', 5: 'giu',
-                    6: 'lug', 7: 'ago', 8: 'set', 9: 'ott', 10: 'nov', 11: 'dic',
-                  };
-                  return `${weekStart.getDate()} ${monthNames[weekStart.getMonth()]} - ${weekEnd.getDate()} ${monthNames[weekEnd.getMonth()]} ${weekEnd.getFullYear()}`;
+                  const parts = d.split('-');
+                  return `${parts[2]} ${monthNames[parts[1]] || parts[1]} ${parts[0].slice(2)}`;
                 } catch { return d; }
-              };
-
-              // Month labels for X axis
-              const months: Record<string, string> = {
-                '01': 'GEN', '02': 'FEB', '03': 'MAR', '04': 'APR', '05': 'MAG', '06': 'GIU',
-                '07': 'LUG', '08': 'AGO', '09': 'SET', '10': 'OTT', '11': 'NOV', '12': 'DIC',
-              };
-
-              // Generate Y-axis grid: 4 evenly spaced horizontal lines
-              const yGridCount = 4;
-              const yGridValues = Array.from({ length: yGridCount }, (_, i) =>
-                chartMin + (rangeTime * i) / (yGridCount - 1)
-              );
-
-              // Handle touch to find nearest data point
-              const handleTouch = (evt: GestureResponderEvent) => {
-                const touchX = evt.nativeEvent.locationX - chartLeft;
-                if (touchX < 0 || touchX > predChartW) {
-                  setPredTooltip(null);
-                  return;
-                }
-                let nearestIdx = 0;
-                let minDist = Infinity;
-                for (let i = 0; i < filteredData.length; i++) {
-                  const px = i * stepX;
-                  const dist = Math.abs(touchX - px);
-                  if (dist < minDist) {
-                    minDist = dist;
-                    nearestIdx = i;
-                  }
-                }
-                const point = filteredData[nearestIdx];
-                const pred = point.predictions[selectedDistance];
-                setPredTooltip({
-                  idx: nearestIdx,
-                  time: pred.time_str,
-                  pace: pred.pace,
-                  date: formatDateRange(point.date),
-                  vdot: point.vdot || 0,
-                });
               };
 
               return (
                 <View style={{ marginTop: SPACING.md }}>
-                  {/* Tooltip - Strava style floating card */}
-                  {predTooltip && (
-                    <View style={{
-                      backgroundColor: '#2a2a3e', borderRadius: 10, padding: 10,
-                      marginBottom: 8, alignSelf: 'flex-start', marginLeft: chartLeft - 10,
-                      borderWidth: 1, borderColor: '#3b3b50',
-                    }}>
-                      <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 8 }}>
-                        <Text style={{ fontSize: 22, color: '#fff', fontWeight: '900' }}>
-                          {predTooltip.time}
-                        </Text>
-                        <Text style={{ fontSize: 12, fontWeight: '600', color: COLORS.textMuted }}>
-                          {predTooltip.pace} /km
-                        </Text>
-                      </View>
-                      <Text style={{ fontSize: 10, color: COLORS.textMuted, marginTop: 3 }}>
-                        {predTooltip.date}
-                      </Text>
-                    </View>
-                  )}
-
-                  <View
-                    style={{ height: predChartH + 40 }}
-                    onStartShouldSetResponder={() => true}
-                    onMoveShouldSetResponder={() => true}
-                    onResponderGrant={handleTouch}
-                    onResponderMove={handleTouch}
-                    onResponderRelease={() => {/* keep tooltip visible */}}
-                  >
-                    {/* Y-axis labels (time values on the right, Strava style) */}
-                    <View style={{ position: 'absolute', right: 0, top: 0, height: predChartH, width: 50 }}>
-                      {yGridValues.map((val, i) => (
-                        <Text key={i} style={{
-                          position: 'absolute', top: toY(val) - 6, left: 4,
-                          fontSize: 9, color: COLORS.textMuted,
-                        }}>{formatTime(val)}</Text>
-                      ))}
-                    </View>
-
-                    {/* Chart area */}
-                    <View style={{ marginLeft: 8, marginRight: 55, height: predChartH, position: 'relative' }}>
-                      {/* Grid lines */}
-                      {yGridValues.map((val, i) => (
-                        <View key={i} style={{
-                          position: 'absolute', top: toY(val),
-                          left: 0, right: 0, height: 1,
-                          backgroundColor: '#ffffff10',
-                        }} />
-                      ))}
-
-                      {/* Vertical indicator line for selected point */}
-                      {predTooltip && (
-                        <View style={{
-                          position: 'absolute', left: predTooltip.idx * stepX,
-                          top: 0, width: 1, height: predChartH,
-                          backgroundColor: '#ffffff30',
-                        }} />
-                      )}
-
-                      {/* Area fill under the line */}
-                      {/* Lines connecting dots */}
-                      {filteredData.map((s: any, i: number) => {
-                        if (i === 0) return null;
-                        const prev = filteredData[i - 1];
-                        const x1 = (i - 1) * stepX, y1 = toY(prev.predictions[selectedDistance].time_min);
-                        const x2 = i * stepX, y2 = toY(s.predictions[selectedDistance].time_min);
-                        const dx = x2 - x1, dy = y2 - y1;
-                        const length = Math.sqrt(dx * dx + dy * dy);
-                        const angle = Math.atan2(dy, dx) * (180 / Math.PI);
-                        return (
-                          <View key={`phl-${i}`} style={{
-                            position: 'absolute', left: x1, top: y1,
-                            width: length, height: 2.5, backgroundColor: '#3b82f6',
-                            transform: [{ rotate: `${angle}deg` }], transformOrigin: 'left center',
-                          }} />
-                        );
-                      })}
-
-                      {/* Dots */}
-                      {filteredData.map((s: any, i: number) => {
-                        const y = toY(s.predictions[selectedDistance].time_min);
-                        const isSelected = predTooltip?.idx === i;
-                        const isLast = i === filteredData.length - 1;
-                        const dotSize = isSelected ? 16 : isLast ? 10 : 5;
-                        return (
-                          <View key={`phd-${i}`} style={{
-                            position: 'absolute', left: i * stepX - dotSize / 2, top: y - dotSize / 2,
-                            width: dotSize, height: dotSize, borderRadius: dotSize / 2,
-                            backgroundColor: isSelected ? '#3b82f6' : isLast ? '#3b82f6' : '#3b82f680',
-                            borderWidth: isSelected ? 3 : isLast ? 2 : 0,
-                            borderColor: isSelected ? '#fff' : '#3b82f6',
-                          }} />
-                        );
-                      })}
-                    </View>
-
-                    {/* X-axis month labels */}
-                    <View style={{ marginLeft: 8, marginRight: 55, flexDirection: 'row', marginTop: 8 }}>
-                      {(() => {
-                        // Show unique month labels spread across the X axis
-                        const seenMonths = new Set<string>();
-                        return filteredData.map((s: any, i: number) => {
-                          const monthKey = s.date.split('-')[1];
-                          const yearKey = s.date.split('-')[0].slice(2);
-                          const label = `${months[monthKey] || monthKey}`;
-                          if (seenMonths.has(monthKey + yearKey)) return null;
-                          seenMonths.add(monthKey + yearKey);
-                          return (
-                            <Text key={i} style={{
-                              position: 'absolute', left: i * stepX - 12, fontSize: 9,
-                              color: COLORS.textMuted, width: 30, textAlign: 'center',
-                            }}>
-                              {label}
-                            </Text>
-                          );
-                        });
-                      })()}
-                    </View>
+                  {/* Table header */}
+                  <View style={{ flexDirection: 'row', paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: COLORS.cardBorder }}>
+                    <Text style={{ flex: 2, fontSize: 10, color: COLORS.textMuted, fontWeight: '700' }}>DATA</Text>
+                    <Text style={{ flex: 2, fontSize: 10, color: COLORS.textMuted, fontWeight: '700', textAlign: 'center' }}>TEMPO</Text>
+                    <Text style={{ flex: 1.5, fontSize: 10, color: COLORS.textMuted, fontWeight: '700', textAlign: 'center' }}>PASSO</Text>
+                    <Text style={{ flex: 1, fontSize: 10, color: COLORS.textMuted, fontWeight: '700', textAlign: 'center' }}>VDOT</Text>
+                    <Text style={{ flex: 1, fontSize: 10, color: COLORS.textMuted, fontWeight: '700', textAlign: 'right' }}>TREND</Text>
                   </View>
+
+                  {/* Table rows */}
+                  {filteredData.map((s: any, i: number) => {
+                    const pred = s.predictions[selectedDistance];
+                    const isLast = i === filteredData.length - 1;
+                    // Calculate trend vs previous entry
+                    let trendSecs = 0;
+                    if (i > 0) {
+                      const prevPred = filteredData[i - 1].predictions[selectedDistance];
+                      trendSecs = Math.round((prevPred.time_min - pred.time_min) * 60);
+                    }
+                    const improved = trendSecs > 0;
+                    const worsened = trendSecs < 0;
+
+                    return (
+                      <View key={i} style={{
+                        flexDirection: 'row', paddingVertical: 10, alignItems: 'center',
+                        borderBottomWidth: 1, borderBottomColor: COLORS.cardBorder + '40',
+                        backgroundColor: isLast ? '#f9731608' : 'transparent',
+                      }}>
+                        <Text style={{ flex: 2, fontSize: 11, color: isLast ? '#f97316' : COLORS.textSecondary, fontWeight: isLast ? '700' : '500' }}>
+                          {formatDate(s.date)}
+                        </Text>
+                        <Text style={{ flex: 2, fontSize: 13, color: isLast ? COLORS.text : COLORS.textSecondary, fontWeight: '800', textAlign: 'center' }}>
+                          {pred.time_str}
+                        </Text>
+                        <Text style={{ flex: 1.5, fontSize: 11, color: COLORS.textMuted, textAlign: 'center' }}>
+                          {pred.pace}/km
+                        </Text>
+                        <Text style={{ flex: 1, fontSize: 11, color: COLORS.blue, fontWeight: '700', textAlign: 'center' }}>
+                          {s.vdot}
+                        </Text>
+                        <View style={{ flex: 1, alignItems: 'flex-end' }}>
+                          {i > 0 && trendSecs !== 0 && (
+                            <View style={{
+                              flexDirection: 'row', alignItems: 'center',
+                              backgroundColor: improved ? '#22c55e15' : '#ef444415',
+                              paddingHorizontal: 4, paddingVertical: 2, borderRadius: 6,
+                            }}>
+                              <Ionicons
+                                name={improved ? "caret-down" : "caret-up"}
+                                size={10}
+                                color={improved ? '#22c55e' : '#ef4444'}
+                              />
+                              <Text style={{ fontSize: 9, fontWeight: '700', color: improved ? '#22c55e' : '#ef4444' }}>
+                                {Math.abs(trendSecs)}s
+                              </Text>
+                            </View>
+                          )}
+                          {i === 0 && <Text style={{ fontSize: 9, color: COLORS.textMuted }}>—</Text>}
+                        </View>
+                      </View>
+                    );
+                  })}
                 </View>
               );
             })()}
