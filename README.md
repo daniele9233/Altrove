@@ -793,7 +793,7 @@ npx expo run:android
 - [x] **VDOT Paces API** — Endpoint `/vdot/paces` con i 5 passi di Daniels calcolati dal VDOT reale
 - [x] **Efficienza Aerobica (trend)** — Grafico decoupling settimanale in Progressi con zone colorate, target 5%, touch tooltip
 - [x] **Rilevamento ripetute** — Banner automatico su corse con alta variabilità passo (CV >15%)
-- [x] **Previsioni gara con trend** — Frecce verdi/rosse con secondi di miglioramento/peggioramento per distanza
+- [x] **Previsioni gara con trend** — Frecce verdi/rosse con secondi di miglioramento/peggioramento per distanza. VDOT calcolato con validazione rigorosa: pace tra 2:30-9:00/km, validazione individuale ogni split, cap VDOT 65, decay 0.4/settimana per inattività, rolling window 8 settimane
 - [x] **Touch tooltip su grafici** — Tutti i grafici in Progressi supportano touch-and-drag per vedere i valori
 - [x] **Zone HR corrette** — Soglie assolute BPM (non % del max) per distribuzione accurata: Z1<117, Z2 117-146, Z3 147-160, Z4 161-175, Z5>175
 - [x] **Resync dettagli Strava** — Endpoint per re-fetch cadenza, splits, best efforts per corse esistenti

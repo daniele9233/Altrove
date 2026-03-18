@@ -3718,16 +3718,11 @@ async def get_prediction_history():
     """
     Race predictions based on VDOT analysis (Daniels' Running Formula).
 
-    Algorithm:
-    1. For each run, calculate VDOT using Daniels formula.
-    2. Also extract best continuous segments (3km, 5km, 10km) from splits
-       and calculate their VDOT — takes the highest.
-    3. Filter by effort level: runs with avg_hr >= 82% max_hr are "validated"
-       (race/tempo effort). Others are included but with lower priority.
-    4. Use a rolling 8-week window: best validated VDOT in window determines
-       predicted race times at 5km, 10km, 21.1km, 42.2km.
-    5. predict_time_from_vdot() uses inverse Daniels formula (binary search)
-       for scientifically accurate time predictions at any distance.
+    Uses ONLY full-run data with strict pace validation to avoid inflated VDOT.
+    Segments from splits are validated individually: each km split must have
+    a realistic elapsed_time (between 150s and 600s per km).
+
+    Rolling 8-week window with VDOT decay for inactivity periods.
     """
     from datetime import date as dt_date
 
@@ -3735,8 +3730,12 @@ async def get_prediction_history():
     max_hr = profile.get("max_hr", 180)
 
     VDOT_MIN_DISTANCE_KM = 3.0
-    VDOT_MIN_HR_PCT = 0.82  # 82% HRmax threshold for validated effort
-    ROLLING_WINDOW_DAYS = 56  # 8 weeks
+    VDOT_MIN_HR_PCT = 0.80          # 80% HRmax for validated effort
+    ROLLING_WINDOW_DAYS = 56        # 8 weeks
+    MAX_VDOT_CAP = 65.0             # Cap: elite amateur level
+    MIN_PACE_SEC_PER_KM = 150       # 2:30/km — faster is rejected
+    MAX_PACE_SEC_PER_KM = 540       # 9:00/km — slower is rejected
+    VDOT_DECAY_PER_WEEK = 0.4       # VDOT decay per week of inactivity
 
     all_runs = await db.runs.find(
         {"date": {"$gte": "2025-01-01"}},
@@ -3749,7 +3748,7 @@ async def get_prediction_history():
 
     target_distances = [("5km", 5), ("10km", 10), ("21.1km", 21.1), ("42.2km", 42.195)]
 
-    # ---- Step 1: Calculate VDOT for each run ----
+    # ---- Step 1: Calculate VDOT for each run with strict validation ----
     run_vdots = []
     for run in all_runs:
         dist = run.get("distance_km", 0)
@@ -3761,45 +3760,76 @@ async def get_prediction_history():
         if dist < VDOT_MIN_DISTANCE_KM or dur <= 0 or not run_date:
             continue
 
+        # Validate full-run pace range
+        run_pace_sec = (dur * 60) / dist
+        if run_pace_sec < MIN_PACE_SEC_PER_KM or run_pace_sec > MAX_PACE_SEC_PER_KM:
+            continue
+
         # Check if validated effort (race-like HR)
-        is_validated = True
+        is_validated = False
         if avg_hr and max_hr > 0:
             hr_pct = avg_hr / max_hr
-            if hr_pct < VDOT_MIN_HR_PCT:
-                is_validated = False
+            if hr_pct >= VDOT_MIN_HR_PCT:
+                is_validated = True
 
         # VDOT from full run
         run_vdot = calculate_vdot_from_race(dist, dur)
-        if not run_vdot:
-            continue
+        if not run_vdot or run_vdot > MAX_VDOT_CAP:
+            if run_vdot and run_vdot > MAX_VDOT_CAP:
+                run_vdot = MAX_VDOT_CAP
+            elif not run_vdot:
+                continue
 
         best_vdot_for_run = run_vdot
 
-        # ---- Step 2: Best segments from splits ----
+        # ---- Step 2: Best segments from splits (with strict validation) ----
         if splits and len(splits) >= 3:
             for seg_len in [3, 5, 10]:
                 if len(splits) >= seg_len:
                     best_seg_time = None
                     for start in range(len(splits) - seg_len + 1):
                         seg_splits = splits[start:start + seg_len]
-                        seg_time_sec = sum(s.get("elapsed_time", 0) for s in seg_splits)
-                        if seg_time_sec > 0 and (best_seg_time is None or seg_time_sec < best_seg_time):
+
+                        # Validate EVERY split in the segment individually
+                        valid_segment = True
+                        seg_time_sec = 0
+                        for s in seg_splits:
+                            split_elapsed = s.get("elapsed_time", 0)
+                            if (split_elapsed < MIN_PACE_SEC_PER_KM or
+                                    split_elapsed > MAX_PACE_SEC_PER_KM):
+                                valid_segment = False
+                                break
+                            seg_time_sec += split_elapsed
+
+                        if not valid_segment or seg_time_sec <= 0:
+                            continue
+
+                        # Validate segment average pace
+                        seg_avg_pace = seg_time_sec / seg_len
+                        if (seg_avg_pace < MIN_PACE_SEC_PER_KM or
+                                seg_avg_pace > MAX_PACE_SEC_PER_KM):
+                            continue
+
+                        if best_seg_time is None or seg_time_sec < best_seg_time:
                             best_seg_time = seg_time_sec
+
                     if best_seg_time and best_seg_time > 0:
                         seg_vdot = calculate_vdot_from_race(seg_len, best_seg_time / 60)
-                        if seg_vdot and seg_vdot > best_vdot_for_run:
+                        if seg_vdot and seg_vdot <= MAX_VDOT_CAP and seg_vdot > best_vdot_for_run:
                             best_vdot_for_run = seg_vdot
 
         run_vdots.append({
             "date": run_date[:10],
-            "vdot": best_vdot_for_run,
+            "vdot": round(best_vdot_for_run, 1),
             "is_validated": is_validated,
+            "distance_km": dist,
+            "duration_min": dur,
         })
 
     if not run_vdots:
         return {"prediction_history": [], "current": {}, "trends": {}}
 
-    # ---- Step 3: Build prediction history using rolling best VDOT ----
+    # ---- Step 3: Build prediction history with rolling window + decay ----
     def _format_pred_time(pred_time_min):
         """Format prediction time in minutes to readable string."""
         total_secs = int(round(pred_time_min * 60))
@@ -3813,25 +3843,38 @@ async def get_prediction_history():
     prediction_snapshots = []
     for i, rv in enumerate(run_vdots):
         run_date = rv["date"]
-        cutoff_date = (dt_date.fromisoformat(run_date) - timedelta(days=ROLLING_WINDOW_DAYS)).isoformat()
+        run_dt = dt_date.fromisoformat(run_date)
+        cutoff_date = (run_dt - timedelta(days=ROLLING_WINDOW_DAYS)).isoformat()
 
         # Best validated VDOT in the rolling window
-        window_vdots = [
-            r["vdot"] for r in run_vdots[:i + 1]
+        window_entries = [
+            r for r in run_vdots[:i + 1]
             if r["date"] >= cutoff_date and r["is_validated"]
         ]
 
-        # Fallback: if no validated efforts, use all efforts
-        if not window_vdots:
-            window_vdots = [
-                r["vdot"] for r in run_vdots[:i + 1]
+        # Fallback: use all efforts if no validated ones
+        if not window_entries:
+            window_entries = [
+                r for r in run_vdots[:i + 1]
                 if r["date"] >= cutoff_date
             ]
 
-        if not window_vdots:
+        if not window_entries:
             continue
 
-        best_vdot = max(window_vdots)
+        # Apply VDOT decay: older efforts within the window lose value
+        best_vdot = 0.0
+        for entry in window_entries:
+            entry_dt = dt_date.fromisoformat(entry["date"])
+            weeks_ago = (run_dt - entry_dt).days / 7.0
+            decayed_vdot = entry["vdot"] - (weeks_ago * VDOT_DECAY_PER_WEEK)
+            if decayed_vdot > best_vdot:
+                best_vdot = decayed_vdot
+
+        if best_vdot <= 0:
+            continue
+
+        best_vdot = min(best_vdot, MAX_VDOT_CAP)
 
         # ---- Step 4: Predict race times from VDOT ----
         preds = {}
