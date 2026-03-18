@@ -933,7 +933,7 @@ export default function ProgressiScreen() {
               {/* Zone bars - all tracks aligned to same width */}
               <View style={{ marginTop: SPACING.md, gap: SPACING.sm }}>
                 {zones.map(z => {
-                  const barW = Math.max(2, (z.pct / maxPct) * 100);
+                  const barW = Math.max(2, z.pct);
                   return (
                   <View key={z.key} style={{ flexDirection: 'row', alignItems: 'center', gap: SPACING.sm }}>
                     <View style={{ width: 28, alignItems: 'center' }}>

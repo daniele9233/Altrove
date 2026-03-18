@@ -356,7 +356,7 @@ Storico evoluzione prestazioni:
 - **Cadenza**: grafico mensile con target 180 spm da Strava (touch tooltip con drag)
 - **Efficienza Aerobica (trend)**: grafico decoupling settimanale con zone colorate (verde/giallo/arancione/rosso), target 5%
 - **Distribuzione zone HR**: barre Z1-Z5 con soglie assolute BPM (Z1<117, Z2 117-146, Z3 147-160, Z4 161-175, Z5>175), barre allineate con percentuali fisse a destra
-- **Previsioni gara (VDOT Daniels)**: 5km, 10km, 21.1km, 42.2km basate su VDOT calcolato da sforzi validati (HR ≥82% max). Grafico storico interattivo (touch/drag con tooltip data+pace+VDOT), filtri per periodo (Oggi/1M/3M/6M), tabs distanza, frecce trend miglioramento/peggioramento, rolling window 8 settimane. Usa `predict_time_from_vdot()` con ricerca binaria su formula Daniels (non più Riegel su avg_pace)
+- **Previsioni gara (VDOT Daniels)**: 5km, 10km, 21.1km, 42.2km basate su VDOT calcolato SOLO da corse complete (NO segmenti/splits per evitare VDOT gonfiati). Validazione pace 2:30-9:00/km, cap VDOT 65. Grafico storico interattivo (touch/drag con tooltip data+pace+VDOT), filtri per periodo (Oggi/1M/3M/6M), tabs distanza, frecce trend miglioramento/peggioramento, rolling window 8 settimane con decay 0.4/settimana
 - **Best efforts**: migliori prestazioni per distanza con passo e FC
 
 ### 12. 🏆 Badge e Trofei
@@ -802,6 +802,8 @@ npx expo run:android
 - [x] **Nome app** — "Corralejo 2026" (era "frontend")
 - [x] **Weekly Report push** — Riepilogo settimanale automatico: km fatti vs target, aderenza %, VDOT
 - [x] **Badge e Trofei (46 badge)** — Sistema gamification completo con 46 badge in 7 categorie: Milestone distanza (6), Costanza (7), Miglioramenti VDOT/PB (10), Tipi allenamento (6), Obiettivi mezza maratona (6), Analisi scienza (5), Velocità lampo (8). Schermata dedicata con progress bar, categorie espandibili, sbloccati/bloccati. Calcolo automatico dopo sync Strava. Endpoint `GET /api/badges`
+- [x] **Fix previsioni gara** — Rimosso VDOT da segmenti/splits che gonfiava le previsioni (passi irrealistici come 3:34/km). Ora usa SOLO VDOT da corse complete con validazione pace 2:30-9:00/km. Previsioni coerenti con tabella Strava reale
+- [x] **Fix barre zone HR** — Barre Z1-Z5 ora allineate correttamente (non più normalizzate al massimo, usano percentuale assoluta)
 
 ---
 

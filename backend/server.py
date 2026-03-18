@@ -1167,26 +1167,12 @@ async def get_run(run_id: str):
             rdur = r.get("duration_minutes", 0)
             if rd < 3 or rdur <= 0:
                 continue
-            # Validate effort
-            rhr = r.get("avg_hr")
-            if rhr and max_hr_pred > 0 and rhr / max_hr_pred < 0.82:
+            # Validate pace range (2:30-9:00/km)
+            run_pace_sec = (rdur * 60) / rd
+            if run_pace_sec < 150 or run_pace_sec > 540:
                 continue
             rv = calculate_vdot_from_race(rd, rdur)
-            if rv:
-                # Also check best segments from splits
-                rsplits = r.get("splits", [])
-                if rsplits and len(rsplits) >= 3:
-                    for seg_len in [3, 5, 10]:
-                        if len(rsplits) >= seg_len:
-                            best_seg = None
-                            for start in range(len(rsplits) - seg_len + 1):
-                                st = sum(s.get("elapsed_time", 0) for s in rsplits[start:start + seg_len])
-                                if st > 0 and (best_seg is None or st < best_seg):
-                                    best_seg = st
-                            if best_seg:
-                                sv = calculate_vdot_from_race(seg_len, best_seg / 60)
-                                if sv and sv > rv:
-                                    rv = sv
+            if rv and rv <= 65:
                 if best_vdot_pred is None or rv > best_vdot_pred:
                     best_vdot_pred = rv
 
@@ -1911,25 +1897,12 @@ async def _get_analytics_impl():
         rdur = r.get("duration_minutes", 0)
         if rd < 3 or rdur <= 0:
             continue
-        rhr = r.get("avg_hr")
-        if rhr and analytics_max_hr > 0 and rhr / analytics_max_hr < 0.82:
+        # Validate pace range (2:30-9:00/km)
+        run_pace_sec = (rdur * 60) / rd
+        if run_pace_sec < 150 or run_pace_sec > 540:
             continue
         rv = calculate_vdot_from_race(rd, rdur)
-        if rv:
-            # Check best segments from splits
-            rsplits = r.get("splits", [])
-            if rsplits and len(rsplits) >= 3:
-                for seg_len in [3, 5, 10]:
-                    if len(rsplits) >= seg_len:
-                        best_seg = None
-                        for start in range(len(rsplits) - seg_len + 1):
-                            st = sum(s.get("elapsed_time", 0) for s in rsplits[start:start + seg_len])
-                            if st > 0 and (best_seg is None or st < best_seg):
-                                best_seg = st
-                        if best_seg:
-                            sv = calculate_vdot_from_race(seg_len, best_seg / 60)
-                            if sv and sv > rv:
-                                rv = sv
+        if rv and rv <= 65:
             if best_vdot_analytics is None or rv > best_vdot_analytics:
                 best_vdot_analytics = rv
 
@@ -3782,41 +3755,7 @@ async def get_prediction_history():
 
         best_vdot_for_run = run_vdot
 
-        # ---- Step 2: Best segments from splits (with strict validation) ----
-        if splits and len(splits) >= 3:
-            for seg_len in [3, 5, 10]:
-                if len(splits) >= seg_len:
-                    best_seg_time = None
-                    for start in range(len(splits) - seg_len + 1):
-                        seg_splits = splits[start:start + seg_len]
-
-                        # Validate EVERY split in the segment individually
-                        valid_segment = True
-                        seg_time_sec = 0
-                        for s in seg_splits:
-                            split_elapsed = s.get("elapsed_time", 0)
-                            if (split_elapsed < MIN_PACE_SEC_PER_KM or
-                                    split_elapsed > MAX_PACE_SEC_PER_KM):
-                                valid_segment = False
-                                break
-                            seg_time_sec += split_elapsed
-
-                        if not valid_segment or seg_time_sec <= 0:
-                            continue
-
-                        # Validate segment average pace
-                        seg_avg_pace = seg_time_sec / seg_len
-                        if (seg_avg_pace < MIN_PACE_SEC_PER_KM or
-                                seg_avg_pace > MAX_PACE_SEC_PER_KM):
-                            continue
-
-                        if best_seg_time is None or seg_time_sec < best_seg_time:
-                            best_seg_time = seg_time_sec
-
-                    if best_seg_time and best_seg_time > 0:
-                        seg_vdot = calculate_vdot_from_race(seg_len, best_seg_time / 60)
-                        if seg_vdot and seg_vdot <= MAX_VDOT_CAP and seg_vdot > best_vdot_for_run:
-                            best_vdot_for_run = seg_vdot
+        # No segment-based VDOT: use only full-run VDOT for accurate predictions
 
         run_vdots.append({
             "date": run_date[:10],
