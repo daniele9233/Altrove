@@ -1044,23 +1044,28 @@ export default function ProgressiScreen() {
                   <Text style={{ fontSize: 32, color: COLORS.text, fontWeight: '900' }}>{curr.time_str}</Text>
                   <Text style={{ fontSize: 14, color: COLORS.textMuted, marginTop: 2 }}>{curr.pace} /km</Text>
 
-                  {/* Trend badge */}
-                  {trend && trend.diff_seconds !== 0 && (
+                  {/* Trend badge - show actual past time and pace */}
+                  {trend && trend.past_time_str && (
                     <View style={{
-                      flexDirection: 'row', alignItems: 'center', marginTop: SPACING.sm,
-                      backgroundColor: trend.improved ? '#22c55e20' : '#ef444420',
-                      paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12,
+                      alignItems: 'center', marginTop: SPACING.sm,
+                      backgroundColor: trend.improved ? '#22c55e15' : '#ef444415',
+                      paddingHorizontal: 12, paddingVertical: 6, borderRadius: 12,
                     }}>
-                      <Ionicons
-                        name={trend.improved ? "caret-down" : "caret-up"}
-                        size={14}
-                        color={trend.improved ? '#22c55e' : '#ef4444'}
-                      />
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                        <Ionicons
+                          name={trend.improved ? "trending-down" : "trending-up"}
+                          size={14}
+                          color={trend.improved ? '#22c55e' : '#ef4444'}
+                        />
+                        <Text style={{ fontSize: 11, color: COLORS.textMuted }}>
+                          {selectedPeriod === '1m' ? '1 mese fa' : selectedPeriod === '3m' ? '3 mesi fa' : '6 mesi fa'}:
+                        </Text>
+                      </View>
                       <Text style={{
-                        fontSize: 13, fontWeight: '800',
+                        fontSize: 15, fontWeight: '800',
                         color: trend.improved ? '#22c55e' : '#ef4444',
                       }}>
-                        {Math.abs(trend.diff_seconds)}sec
+                        {trend.past_time_str}  {trend.past_pace}/km
                       </Text>
                     </View>
                   )}
@@ -1078,8 +1083,7 @@ export default function ProgressiScreen() {
               else if (selectedPeriod === '6m') cutoffDate = new Date(now.getTime() - 180 * 86400000).toISOString().slice(0, 10);
 
               const filteredData = predictionData.prediction_history
-                .filter((s: any) => s.date >= cutoffDate && s.predictions[selectedDistance])
-                .slice(-10); // Last 10 entries max
+                .filter((s: any) => s.date >= cutoffDate && s.predictions[selectedDistance]);
               if (filteredData.length === 0) return null;
 
               const monthNames: Record<string, string> = {
@@ -1090,7 +1094,7 @@ export default function ProgressiScreen() {
               const formatDate = (d: string) => {
                 try {
                   const parts = d.split('-');
-                  return `${parts[2]} ${monthNames[parts[1]] || parts[1]} ${parts[0].slice(2)}`;
+                  return `${monthNames[parts[1]] || parts[1]} ${parts[0]}`;
                 } catch { return d; }
               };
 
@@ -1230,21 +1234,18 @@ export default function ProgressiScreen() {
                       </View>
                       <Text style={{ fontSize: 16, color: COLORS.text, fontWeight: '900' }}>{pred.time_str}</Text>
                       <Text style={{ fontSize: 10, color: COLORS.textMuted }}>{pred.pace}/km</Text>
-                      {trend && trend.diff_seconds !== 0 && (
+                      {trend && trend.past_time_str && (
                         <View style={{
-                          flexDirection: 'row', alignItems: 'center', marginTop: 4,
-                          backgroundColor: trend.improved ? '#22c55e20' : '#ef444420',
+                          alignItems: 'center', marginTop: 4,
+                          backgroundColor: trend.improved ? '#22c55e15' : '#ef444415',
                           paddingHorizontal: 6, paddingVertical: 2, borderRadius: 8,
                         }}>
-                          <Ionicons
-                            name={trend.improved ? "caret-down" : "caret-up"}
-                            size={10}
-                            color={trend.improved ? '#22c55e' : '#ef4444'}
-                          />
                           <Text style={{
-                            fontSize: 9, fontWeight: '800',
+                            fontSize: 8, fontWeight: '700',
                             color: trend.improved ? '#22c55e' : '#ef4444',
-                          }}>{Math.abs(trend.diff_seconds)}sec</Text>
+                          }}>
+                            {trend.improved ? '▼' : '▲'} {trend.past_time_str}  {trend.past_pace}/km
+                          </Text>
                         </View>
                       )}
                       {isGoal && (

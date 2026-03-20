@@ -3855,17 +3855,25 @@ async def get_prediction_history():
         seen_dates[snap["date"]] = snap
     unique_snapshots = sorted(seen_dates.values(), key=lambda s: s["date"])
 
-    # Current predictions
-    current = unique_snapshots[-1]["predictions"] if unique_snapshots else {}
-    current_vdot = unique_snapshots[-1].get("vdot") if unique_snapshots else None
+    # Aggregate by month: keep best VDOT snapshot per month
+    monthly_snapshots = {}
+    for snap in unique_snapshots:
+        month_key = snap["date"][:7]  # "2025-04"
+        if month_key not in monthly_snapshots or snap["vdot"] > monthly_snapshots[month_key]["vdot"]:
+            monthly_snapshots[month_key] = snap
+    monthly_list = sorted(monthly_snapshots.values(), key=lambda s: s["date"])
 
-    # ---- Step 5: Calculate trends ----
+    # Current predictions (from latest monthly snapshot)
+    current = monthly_list[-1]["predictions"] if monthly_list else {}
+    current_vdot_val = monthly_list[-1].get("vdot") if monthly_list else None
+
+    # ---- Step 5: Calculate trends with actual time/pace values ----
     trends = {}
-    if len(unique_snapshots) >= 2:
+    if len(monthly_list) >= 2:
         for period_key, days_back in [("1m", 30), ("3m", 90), ("6m", 180)]:
             cutoff = (dt_date.today() - timedelta(days=days_back)).isoformat()
             past_snap = None
-            for s in unique_snapshots:
+            for s in monthly_list:
                 if s["date"] <= cutoff:
                     past_snap = s
                 else:
@@ -3873,20 +3881,25 @@ async def get_prediction_history():
             if past_snap:
                 period_trends = {}
                 for dist_key in ["5km", "10km", "21.1km", "42.2km"]:
-                    curr_time = current.get(dist_key, {}).get("time_min", 0)
-                    past_time = past_snap["predictions"].get(dist_key, {}).get("time_min", 0)
+                    curr_pred = current.get(dist_key, {})
+                    past_pred = past_snap["predictions"].get(dist_key, {})
+                    curr_time = curr_pred.get("time_min", 0)
+                    past_time = past_pred.get("time_min", 0)
                     if curr_time and past_time:
                         diff_secs = round((past_time - curr_time) * 60)
                         period_trends[dist_key] = {
                             "diff_seconds": diff_secs,
                             "improved": diff_secs > 0,
+                            "past_time_str": past_pred.get("time_str", ""),
+                            "past_pace": past_pred.get("pace", ""),
+                            "past_vdot": past_snap.get("vdot"),
                         }
                 trends[period_key] = period_trends
 
     return {
-        "prediction_history": unique_snapshots,
+        "prediction_history": monthly_list,
         "current": current,
-        "current_vdot": current_vdot,
+        "current_vdot": current_vdot_val,
         "trends": trends,
     }
 
@@ -4083,11 +4096,16 @@ async def compute_badges() -> list:
     import math
     from datetime import date as dt_date
 
-    runs = await db.runs.find({"date": {"$gte": "2026-03-23"}}, {"_id": 0}).sort("date", 1).to_list(5000)
+    BADGE_START_DATE = "2026-03-23"
+    runs = await db.runs.find({"date": {"$gte": BADGE_START_DATE}}, {"_id": 0}).sort("date", 1).to_list(5000)
     profile = await db.profile.find_one({}, {"_id": 0}) or {}
-    best_efforts_docs = await db.best_efforts.find({}, {"_id": 0}).to_list(200)
-    vo2max_history = await db.vo2max_history.find({}, {"_id": 0}).sort("date", 1).to_list(500)
-    training_weeks = await db.training_plan.find({}, {"_id": 0}).sort("week_start", 1).to_list(200)
+    # Filter best_efforts to only include those from badge start date onwards
+    all_best_efforts = await db.best_efforts.find({}, {"_id": 0}).to_list(200)
+    best_efforts_docs = [be for be in all_best_efforts if (be.get("run_date") or "") >= BADGE_START_DATE]
+    # Filter vo2max_history to only include from badge start date
+    all_vo2max = await db.vo2max_history.find({}, {"_id": 0}).sort("date", 1).to_list(500)
+    vo2max_history = [v for v in all_vo2max if (v.get("date") or "") >= BADGE_START_DATE]
+    training_weeks = await db.training_plan.find({"week_start": {"$gte": BADGE_START_DATE}}, {"_id": 0}).sort("week_start", 1).to_list(200)
 
     # Load existing badge states (for unlock dates)
     existing = {}
@@ -4127,11 +4145,15 @@ async def compute_badges() -> list:
         name = be.get("distance_name", "")
         best_efforts_map[name] = be
 
-    # VDOT data
+    # VDOT data — only count improvements from badge start date
     current_vdot = profile.get("current_vdot") or 0
     vdot_values = [v.get("vdot", 0) for v in vo2max_history if v.get("vdot")]
+    # Initial VDOT = first VDOT recorded after badge start date (or current if none)
     initial_vdot = vdot_values[0] if vdot_values else current_vdot
     vdot_improvement = round(current_vdot - initial_vdot, 1) if initial_vdot else 0
+    # If no VDOT history after badge start, no improvement yet
+    if not vdot_values:
+        vdot_improvement = 0
 
     # PB tracking from best_efforts - check if any PR exists
     has_pb_5k = bool(best_efforts_map.get("5k", {}).get("pr_rank") == 1 or best_efforts_map.get("5k"))
