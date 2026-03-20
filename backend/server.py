@@ -4145,14 +4145,16 @@ async def compute_badges() -> list:
         name = be.get("distance_name", "")
         best_efforts_map[name] = be
 
-    # VDOT data — only count improvements from badge start date
-    current_vdot = profile.get("current_vdot") or 0
+    # VDOT data — ONLY use VDOT values recorded after badge start date
     vdot_values = [v.get("vdot", 0) for v in vo2max_history if v.get("vdot")]
-    # Initial VDOT = first VDOT recorded after badge start date (or current if none)
-    initial_vdot = vdot_values[0] if vdot_values else current_vdot
-    vdot_improvement = round(current_vdot - initial_vdot, 1) if initial_vdot else 0
-    # If no VDOT history after badge start, no improvement yet
-    if not vdot_values:
+    # If no VDOT history after badge start date, no VDOT progress at all
+    if vdot_values:
+        current_vdot = vdot_values[-1]  # Latest VDOT after badge start
+        initial_vdot = vdot_values[0]   # First VDOT after badge start
+        vdot_improvement = round(current_vdot - initial_vdot, 1)
+    else:
+        current_vdot = 0  # No VDOT data after badge start = no badges
+        initial_vdot = 0
         vdot_improvement = 0
 
     # PB tracking from best_efforts - check if any PR exists
