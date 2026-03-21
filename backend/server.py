@@ -20,6 +20,7 @@ db = client[os.environ['DB_NAME']]
 
 EMERGENT_KEY = os.environ.get('EMERGENT_LLM_KEY', '')
 GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY', '')
+ANTHROPIC_API_KEY = os.environ.get('ANTHROPIC_API_KEY', '')
 STRAVA_CLIENT_ID = os.environ.get('STRAVA_CLIENT_ID', '')
 STRAVA_CLIENT_SECRET = os.environ.get('STRAVA_CLIENT_SECRET', '')
 STRAVA_INITIAL_ACCESS_TOKEN = os.environ.get('STRAVA_ACCESS_TOKEN', '')
@@ -1442,45 +1443,79 @@ CONTESTO SETTIMANA:
             )
 
     response = None
+    ai_source = "fallback"
 
-    # Try Google Gemini via REST API (no SDK needed)
+    # ── Priority 1: Claude API (Anthropic) ──
     try:
-        if GEMINI_API_KEY:
-            gemini_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={GEMINI_API_KEY}"
-            gemini_payload = {
-                "contents": [
-                    {
-                        "parts": [
-                            {"text": system_msg + "\n\n" + run_info}
-                        ]
-                    }
+        if ANTHROPIC_API_KEY:
+            claude_url = "https://api.anthropic.com/v1/messages"
+            claude_headers = {
+                "x-api-key": ANTHROPIC_API_KEY,
+                "anthropic-version": "2023-06-01",
+                "content-type": "application/json",
+            }
+            claude_payload = {
+                "model": "claude-haiku-4-20250514",
+                "max_tokens": 2000,
+                "temperature": 0.9,
+                "system": system_msg,
+                "messages": [
+                    {"role": "user", "content": run_info}
                 ],
-                "generationConfig": {
-                    "maxOutputTokens": 3000,
-                    "temperature": 0.85,
-                }
             }
             async with httpx.AsyncClient(timeout=60) as http_ai:
-                gemini_resp = await http_ai.post(gemini_url, json=gemini_payload)
-                if gemini_resp.status_code == 200:
-                    gemini_data = gemini_resp.json()
-                    candidates = gemini_data.get("candidates", [])
-                    if candidates:
-                        parts = candidates[0].get("content", {}).get("parts", [])
-                        if parts:
-                            response = parts[0].get("text", "")
-                            logger.info("AI analysis generated via Google Gemini REST API")
+                claude_resp = await http_ai.post(claude_url, json=claude_payload, headers=claude_headers)
+                if claude_resp.status_code == 200:
+                    claude_data = claude_resp.json()
+                    content_blocks = claude_data.get("content", [])
+                    if content_blocks:
+                        response = content_blocks[0].get("text", "")
+                        ai_source = "claude"
+                        logger.info("AI analysis generated via Claude API (Haiku)")
                 else:
-                    logger.warning(f"Gemini API error {gemini_resp.status_code}: {gemini_resp.text[:200]}")
+                    logger.warning(f"Claude API error {claude_resp.status_code}: {claude_resp.text[:200]}")
     except Exception as e:
-        logger.warning(f"Gemini AI unavailable: {e}")
+        logger.warning(f"Claude AI unavailable: {e}")
 
-    # Fallback: enhanced analysis without AI
+    # ── Priority 2: Google Gemini fallback ──
+    if not response:
+        try:
+            if GEMINI_API_KEY:
+                gemini_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={GEMINI_API_KEY}"
+                gemini_payload = {
+                    "contents": [
+                        {
+                            "parts": [
+                                {"text": system_msg + "\n\n" + run_info}
+                            ]
+                        }
+                    ],
+                    "generationConfig": {
+                        "maxOutputTokens": 3000,
+                        "temperature": 0.85,
+                    }
+                }
+                async with httpx.AsyncClient(timeout=60) as http_ai:
+                    gemini_resp = await http_ai.post(gemini_url, json=gemini_payload)
+                    if gemini_resp.status_code == 200:
+                        gemini_data = gemini_resp.json()
+                        candidates = gemini_data.get("candidates", [])
+                        if candidates:
+                            parts = candidates[0].get("content", {}).get("parts", [])
+                            if parts:
+                                response = parts[0].get("text", "")
+                                ai_source = "gemini"
+                                logger.info("AI analysis generated via Google Gemini REST API")
+                    else:
+                        logger.warning(f"Gemini API error {gemini_resp.status_code}: {gemini_resp.text[:200]}")
+        except Exception as e:
+            logger.warning(f"Gemini AI unavailable: {e}")
+
+    # ── Priority 3: Enhanced template fallback ──
     if not response:
         response = _generate_enhanced_analysis(run, planned_session, planned_week, profile, vdot_val, vdot_paces, recent_runs)
-        logger.info("AI analysis generated via fallback template (Gemini unavailable)")
-
-    ai_source = "gemini" if response and not response.startswith("**Analisi corsa") else "fallback"
+        ai_source = "fallback"
+        logger.info("AI analysis generated via fallback template")
 
     # Delete any previous analysis for this run so the new one is always used
     await db.ai_analyses.delete_many({"run_id": req.run_id})
