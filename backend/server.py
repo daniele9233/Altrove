@@ -4508,6 +4508,7 @@ BADGE_DEFINITIONS = [
     {"id": "century_km_month", "name": "Mese da 100 km", "cat": "fun", "cat_label": "🎉 Fun & Speciali", "desc": "Corri 100+ km in un mese", "icon": "💯", "target": 1},
     {"id": "hour_run", "name": "Corsa da 1 ora", "cat": "fun", "cat_label": "🎉 Fun & Speciali", "desc": "Completa una corsa di almeno 60 minuti", "icon": "⏰", "target": 1},
     {"id": "two_hour_run", "name": "Corsa da 2 ore", "cat": "fun", "cat_label": "🎉 Fun & Speciali", "desc": "Completa una corsa di almeno 120 minuti", "icon": "⏰", "target": 1},
+    {"id": "passerotto", "name": "Passerotto", "cat": "fun", "cat_label": "🎉 Fun & Speciali", "desc": "5K sotto i 20 minuti E 10K sotto i 4:15/km", "icon": "🐦", "target": 1},
 ]
 
 
@@ -5500,6 +5501,46 @@ async def compute_badges() -> list:
             has_2hour = any(r.get("duration_minutes", 0) >= 120 for r in valid_runs)
             progress = 1 if has_2hour else 0
             unlocked = has_2hour
+        elif bid == "passerotto":
+            # Requires BOTH: 5K under 20 min AND 10K under 4:15/km
+            # Check best efforts for 5K time < 20 min (1200 seconds)
+            has_5k_sub20 = False
+            has_10k_sub415 = False
+            for be in best_efforts_docs:
+                dist = be.get("distance", 0)
+                time_min = be.get("time", 0)  # in minutes
+                pace_str = be.get("pace", "")
+                # 5K: time < 20 minutes
+                if 4.8 <= dist <= 5.5 and time_min < 20:
+                    has_5k_sub20 = True
+                # 10K: pace < 4:15/km
+                if 9.5 <= dist <= 10.5 and pace_str:
+                    try:
+                        parts = pace_str.split(":")
+                        pace_secs = int(parts[0]) * 60 + int(parts[1])
+                        if pace_secs < 255:  # 4:15 = 255 seconds
+                            has_10k_sub415 = True
+                    except (ValueError, IndexError):
+                        pass
+            # Also check from runs directly
+            for r in valid_runs:
+                dist = r.get("distance_km", 0)
+                dur = r.get("duration_minutes", 0)
+                pace_str = r.get("avg_pace", "")
+                if 4.8 <= dist <= 5.5 and dur > 0 and dur < 20:
+                    has_5k_sub20 = True
+                if 9.5 <= dist <= 10.5 and pace_str:
+                    try:
+                        parts = pace_str.split(":")
+                        pace_secs = int(parts[0]) * 60 + int(parts[1])
+                        if pace_secs < 255:
+                            has_10k_sub415 = True
+                    except (ValueError, IndexError):
+                        pass
+            both = has_5k_sub20 and has_10k_sub415
+            progress = (1 if has_5k_sub20 else 0) + (1 if has_10k_sub415 else 0)
+            target = 2
+            unlocked = both
 
         # Preserve unlock date or set it
         prev = existing.get(bid, {})
