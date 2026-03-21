@@ -533,6 +533,7 @@ export default function ProgressiScreen() {
   const [fitnessData, setFitnessData] = useState<any>(null);
   const [selectedPeriod, setSelectedPeriod] = useState<string>('tutti');
   const [tooltip, setTooltip] = useState<{ x: number; y: number; value: string; label: string } | null>(null);
+  const [ffTouchIdx, setFfTouchIdx] = useState<number | null>(null);
 
   useFocusEffect(
     useCallback(() => {
@@ -1068,142 +1069,317 @@ export default function ProgressiScreen() {
                 </View>
               </View>
 
-              {/* Interactive Strava-style chart */}
-              <View
-                style={{ height: FF_CHART_H + 30, marginBottom: SPACING.sm }}
-                onStartShouldSetResponder={() => true}
-                onMoveShouldSetResponder={() => true}
-              >
-                {/* Y-axis labels + gridlines */}
-                {yGridLines.map((val, i) => (
-                  <React.Fragment key={`yg-${i}`}>
+              {/* Interactive Strava-style chart with touch */}
+              {(() => {
+                // Include TSB in scale calculation
+                const allTsbVals = ff.map((p: any) => p.tsb);
+                const minTsb = Math.min(...allTsbVals, 0);
+                const maxAll = Math.max(maxY, 10);
+                const totalRange = maxAll - Math.min(minTsb, -10);
+                const zeroLineY = (maxAll / totalRange) * FF_CHART_H;
+
+                const toY = (val: number) => FF_CHART_H - ((val - Math.min(minTsb, -10)) / totalRange) * FF_CHART_H;
+
+                // Touch handler
+                const handleTouch = (evt: any) => {
+                  const touchX = evt.nativeEvent.locationX - FF_CHART_PAD_L;
+                  const idx = Math.round(touchX / stepX);
+                  const clampedIdx = Math.max(0, Math.min(ff.length - 1, idx));
+                  setFfTouchIdx(clampedIdx);
+                };
+
+                const touchedPoint = ffTouchIdx !== null ? ff[ffTouchIdx] : null;
+                const DAYS = ['Dom','Lun','Mar','Mer','Gio','Ven','Sab'];
+                const formatTouchDate = (dateStr: string) => {
+                  const d = new Date(dateStr + 'T00:00:00');
+                  const day = DAYS[d.getDay()];
+                  const dd = d.getDate();
+                  const mm = d.getMonth() + 1;
+                  return `${day} ${dd}/${mm.toString().padStart(2, '0')}`;
+                };
+
+                return (
+                  <View
+                    style={{ height: FF_CHART_H + 40, marginBottom: SPACING.sm }}
+                    onStartShouldSetResponder={() => true}
+                    onMoveShouldSetResponder={() => true}
+                    onResponderGrant={handleTouch}
+                    onResponderMove={handleTouch}
+                    onResponderRelease={() => setFfTouchIdx(null)}
+                  >
+                    {/* Tooltip on touch */}
+                    {touchedPoint && ffTouchIdx !== null && (
+                      <View style={{
+                        position: 'absolute', top: -50, zIndex: 20,
+                        left: Math.min(Math.max(FF_CHART_PAD_L + ffTouchIdx * stepX - 70, 4), ffChartW - 100),
+                        backgroundColor: '#1a1a2e', borderRadius: 8, padding: 8,
+                        borderWidth: 1, borderColor: '#333',
+                        shadowColor: '#000', shadowOpacity: 0.5, shadowRadius: 6,
+                      }}>
+                        <Text style={{ fontSize: 10, color: '#fff', fontWeight: '700', marginBottom: 3 }}>
+                          {formatTouchDate(touchedPoint.date)}
+                        </Text>
+                        <View style={{ flexDirection: 'row', gap: 10 }}>
+                          <Text style={{ fontSize: 9, color: '#f97316', fontWeight: '600' }}>
+                            {touchedPoint.ctl} Cond.
+                          </Text>
+                          <Text style={{ fontSize: 9, color: '#9ca3af', fontWeight: '600' }}>
+                            {touchedPoint.atl} Affat.
+                          </Text>
+                          <Text style={{ fontSize: 9, color: touchedPoint.tsb >= 0 ? '#22c55e' : '#ef4444', fontWeight: '600' }}>
+                            {touchedPoint.tsb} Forma
+                          </Text>
+                        </View>
+                      </View>
+                    )}
+
+                    {/* Y-axis labels + gridlines */}
+                    {yGridLines.map((val, i) => (
+                      <React.Fragment key={`yg-${i}`}>
+                        <View style={{
+                          position: 'absolute', left: FF_CHART_PAD_L, right: FF_CHART_PAD_R,
+                          top: toY(val), height: 1,
+                          backgroundColor: COLORS.cardBorder, opacity: 0.3,
+                        }} />
+                        <Text style={{
+                          position: 'absolute', left: 0, top: toY(val) - 6,
+                          fontSize: 8, color: COLORS.textMuted, width: FF_CHART_PAD_L - 4, textAlign: 'right',
+                        }}>{val}</Text>
+                      </React.Fragment>
+                    ))}
+
+                    {/* Zero line (baseline) */}
                     <View style={{
                       position: 'absolute', left: FF_CHART_PAD_L, right: FF_CHART_PAD_R,
-                      top: toChartY(val), height: 1,
-                      backgroundColor: COLORS.cardBorder, opacity: 0.4,
+                      top: toY(0), height: 1,
+                      backgroundColor: '#555', opacity: 0.6,
                     }} />
-                    <Text style={{
-                      position: 'absolute', left: 0, top: toChartY(val) - 6,
-                      fontSize: 8, color: COLORS.textMuted, width: FF_CHART_PAD_L - 4, textAlign: 'right',
-                    }}>{val}</Text>
-                  </React.Fragment>
-                ))}
 
-                {/* ATL area (grey filled) */}
-                {ff.length > 1 && ff.map((point: any, i: number) => {
-                  if (i === 0) return null;
-                  const prev = ff[i - 1];
-                  const x1 = FF_CHART_PAD_L + (i - 1) * stepX;
-                  const x2 = FF_CHART_PAD_L + i * stepX;
-                  const y1 = toChartY(prev.atl);
-                  const y2 = toChartY(point.atl);
-                  const avgY = (y1 + y2) / 2;
-                  const barH = FF_CHART_H - avgY;
-                  return (
-                    <View key={`atl-fill-${i}`} style={{
-                      position: 'absolute', left: x1, top: avgY,
-                      width: x2 - x1 + 1, height: Math.max(barH, 0),
-                      backgroundColor: '#9ca3af15',
-                    }} />
-                  );
-                })}
+                    {/* TSB area fill (green above 0, red below 0) */}
+                    {ff.map((point: any, i: number) => {
+                      if (i === 0) return null;
+                      const x1 = FF_CHART_PAD_L + (i - 1) * stepX;
+                      const x2 = FF_CHART_PAD_L + i * stepX;
+                      const prev = ff[i - 1];
+                      const avgTsb = (prev.tsb + point.tsb) / 2;
+                      const y0 = toY(0);
+                      const yVal = toY(avgTsb);
+                      if (avgTsb >= 0) {
+                        return (
+                          <View key={`tsb-fill-${i}`} style={{
+                            position: 'absolute', left: x1, top: yVal,
+                            width: x2 - x1 + 1, height: Math.max(y0 - yVal, 0),
+                            backgroundColor: '#22c55e10',
+                          }} />
+                        );
+                      } else {
+                        return (
+                          <View key={`tsb-fill-${i}`} style={{
+                            position: 'absolute', left: x1, top: y0,
+                            width: x2 - x1 + 1, height: Math.max(yVal - y0, 0),
+                            backgroundColor: '#ef444410',
+                          }} />
+                        );
+                      }
+                    })}
 
-                {/* ATL line (grey) */}
-                {ff.map((point: any, i: number) => {
-                  if (i === 0) return null;
-                  const prev = ff[i - 1];
-                  const x1 = FF_CHART_PAD_L + (i - 1) * stepX;
-                  const x2 = FF_CHART_PAD_L + i * stepX;
-                  const y1 = toChartY(prev.atl);
-                  const y2 = toChartY(point.atl);
-                  const dx = x2 - x1, dy = y2 - y1;
-                  const length = Math.sqrt(dx * dx + dy * dy);
-                  const angle = Math.atan2(dy, dx) * (180 / Math.PI);
-                  return (
-                    <View key={`atl-${i}`} style={{
-                      position: 'absolute', left: x1, top: y1,
-                      width: length, height: 1.5,
-                      backgroundColor: '#9ca3af',
-                      transform: [{ rotate: `${angle}deg` }], transformOrigin: 'left center',
-                      opacity: 0.7,
-                    }} />
-                  );
-                })}
+                    {/* ATL area (grey filled under line) */}
+                    {ff.length > 1 && ff.map((point: any, i: number) => {
+                      if (i === 0) return null;
+                      const prev = ff[i - 1];
+                      const x1 = FF_CHART_PAD_L + (i - 1) * stepX;
+                      const x2 = FF_CHART_PAD_L + i * stepX;
+                      const y1 = toY(prev.atl);
+                      const y2 = toY(point.atl);
+                      const avgYa = (y1 + y2) / 2;
+                      const barH = FF_CHART_H - avgYa;
+                      return (
+                        <View key={`atl-fill-${i}`} style={{
+                          position: 'absolute', left: x1, top: avgYa,
+                          width: x2 - x1 + 1, height: Math.max(barH, 0),
+                          backgroundColor: '#9ca3af12',
+                        }} />
+                      );
+                    })}
 
-                {/* CTL line (orange, thicker) */}
-                {ff.map((point: any, i: number) => {
-                  if (i === 0) return null;
-                  const prev = ff[i - 1];
-                  const x1 = FF_CHART_PAD_L + (i - 1) * stepX;
-                  const x2 = FF_CHART_PAD_L + i * stepX;
-                  const y1 = toChartY(prev.ctl);
-                  const y2 = toChartY(point.ctl);
-                  const dx = x2 - x1, dy = y2 - y1;
-                  const length = Math.sqrt(dx * dx + dy * dy);
-                  const angle = Math.atan2(dy, dx) * (180 / Math.PI);
-                  return (
-                    <View key={`ctl-${i}`} style={{
-                      position: 'absolute', left: x1, top: y1,
-                      width: length, height: 2.5,
-                      backgroundColor: '#f97316',
-                      transform: [{ rotate: `${angle}deg` }], transformOrigin: 'left center',
-                    }} />
-                  );
-                })}
+                    {/* ATL line (grey) */}
+                    {ff.map((point: any, i: number) => {
+                      if (i === 0) return null;
+                      const prev = ff[i - 1];
+                      const x1 = FF_CHART_PAD_L + (i - 1) * stepX;
+                      const x2 = FF_CHART_PAD_L + i * stepX;
+                      const y1 = toY(prev.atl);
+                      const y2 = toY(point.atl);
+                      const dx = x2 - x1, dy = y2 - y1;
+                      const length = Math.sqrt(dx * dx + dy * dy);
+                      const angle = Math.atan2(dy, dx) * (180 / Math.PI);
+                      return (
+                        <View key={`atl-${i}`} style={{
+                          position: 'absolute', left: x1, top: y1,
+                          width: length, height: 1.5,
+                          backgroundColor: '#9ca3af',
+                          transform: [{ rotate: `${angle}deg` }], transformOrigin: 'left center',
+                          opacity: 0.6,
+                        }} />
+                      );
+                    })}
 
-                {/* Last point dots */}
-                {ff.length > 0 && (() => {
-                  const last = ff[ff.length - 1];
-                  const x = FF_CHART_PAD_L + (ff.length - 1) * stepX;
-                  return (
-                    <>
+                    {/* CTL line (orange, thicker) */}
+                    {ff.map((point: any, i: number) => {
+                      if (i === 0) return null;
+                      const prev = ff[i - 1];
+                      const x1 = FF_CHART_PAD_L + (i - 1) * stepX;
+                      const x2 = FF_CHART_PAD_L + i * stepX;
+                      const y1 = toY(prev.ctl);
+                      const y2 = toY(point.ctl);
+                      const dx = x2 - x1, dy = y2 - y1;
+                      const length = Math.sqrt(dx * dx + dy * dy);
+                      const angle = Math.atan2(dy, dx) * (180 / Math.PI);
+                      return (
+                        <View key={`ctl-${i}`} style={{
+                          position: 'absolute', left: x1, top: y1,
+                          width: length, height: 2.5,
+                          backgroundColor: '#f97316',
+                          transform: [{ rotate: `${angle}deg` }], transformOrigin: 'left center',
+                        }} />
+                      );
+                    })}
+
+                    {/* TSB line (Forma Fisica — green/red dashed) */}
+                    {ff.map((point: any, i: number) => {
+                      if (i === 0) return null;
+                      const prev = ff[i - 1];
+                      const x1 = FF_CHART_PAD_L + (i - 1) * stepX;
+                      const x2 = FF_CHART_PAD_L + i * stepX;
+                      const y1 = toY(prev.tsb);
+                      const y2 = toY(point.tsb);
+                      const dx = x2 - x1, dy = y2 - y1;
+                      const length = Math.sqrt(dx * dx + dy * dy);
+                      const angle = Math.atan2(dy, dx) * (180 / Math.PI);
+                      const avgTsb = (prev.tsb + point.tsb) / 2;
+                      const lineColor = avgTsb >= 0 ? '#22c55e' : '#ef4444';
+                      return (
+                        <View key={`tsb-${i}`} style={{
+                          position: 'absolute', left: x1, top: y1,
+                          width: length, height: 2,
+                          backgroundColor: lineColor,
+                          transform: [{ rotate: `${angle}deg` }], transformOrigin: 'left center',
+                          opacity: 0.8,
+                        }} />
+                      );
+                    })}
+
+                    {/* Touch vertical line */}
+                    {ffTouchIdx !== null && (
                       <View style={{
-                        position: 'absolute', left: x - 4, top: toChartY(last.ctl) - 4,
-                        width: 8, height: 8, borderRadius: 4, backgroundColor: '#f97316',
-                        borderWidth: 2, borderColor: '#fff', zIndex: 3,
+                        position: 'absolute',
+                        left: FF_CHART_PAD_L + ffTouchIdx * stepX,
+                        top: 0, width: 1, height: FF_CHART_H,
+                        backgroundColor: '#ffffff60', zIndex: 10,
                       }} />
-                      <Text style={{
-                        position: 'absolute', left: x - 10, top: toChartY(last.ctl) - 18,
-                        fontSize: 9, color: '#f97316', fontWeight: '800', width: 24, textAlign: 'center',
-                      }}>{last.ctl}</Text>
-                      <View style={{
-                        position: 'absolute', left: x - 3, top: toChartY(last.atl) - 3,
-                        width: 6, height: 6, borderRadius: 3, backgroundColor: '#9ca3af',
-                        zIndex: 3,
-                      }} />
-                      <Text style={{
-                        position: 'absolute', left: x + 6, top: toChartY(last.atl) - 7,
-                        fontSize: 9, color: '#9ca3af', fontWeight: '800',
-                      }}>{last.atl}</Text>
-                    </>
-                  );
-                })()}
+                    )}
 
-                {/* X-axis month labels */}
-                <View style={{ position: 'absolute', top: FF_CHART_H + 4, left: FF_CHART_PAD_L, right: FF_CHART_PAD_R }}>
-                  {monthLabels.map((ml, i) => {
-                    // Only show every N months to avoid overlap
-                    const showEvery = Math.max(1, Math.floor(monthLabels.length / 8));
-                    if (i % showEvery !== 0 && i !== monthLabels.length - 1) return null;
-                    return (
-                      <Text key={`ml-${i}`} style={{
-                        position: 'absolute', left: ml.idx * stepX - 14,
-                        fontSize: 8, color: COLORS.textMuted, width: 30, textAlign: 'center',
-                      }}>{ml.label}</Text>
-                    );
-                  })}
-                </View>
-              </View>
+                    {/* Last point dots + values */}
+                    {ff.length > 0 && ffTouchIdx === null && (() => {
+                      const last = ff[ff.length - 1];
+                      const x = FF_CHART_PAD_L + (ff.length - 1) * stepX;
+                      return (
+                        <>
+                          {/* CTL dot */}
+                          <View style={{
+                            position: 'absolute', left: x - 4, top: toY(last.ctl) - 4,
+                            width: 8, height: 8, borderRadius: 4, backgroundColor: '#f97316',
+                            borderWidth: 2, borderColor: '#fff', zIndex: 3,
+                          }} />
+                          <Text style={{
+                            position: 'absolute', left: x + 8, top: toY(last.ctl) - 7,
+                            fontSize: 9, color: '#f97316', fontWeight: '800',
+                          }}>{last.ctl}</Text>
 
-              {/* Legend */}
-              <View style={{ flexDirection: 'row', justifyContent: 'center', gap: SPACING.xl, marginTop: SPACING.sm }}>
+                          {/* ATL dot */}
+                          <View style={{
+                            position: 'absolute', left: x - 3, top: toY(last.atl) - 3,
+                            width: 6, height: 6, borderRadius: 3, backgroundColor: '#9ca3af',
+                            zIndex: 3,
+                          }} />
+                          <Text style={{
+                            position: 'absolute', left: x + 8, top: toY(last.atl) - 7,
+                            fontSize: 9, color: '#9ca3af', fontWeight: '800',
+                          }}>{last.atl}</Text>
+
+                          {/* TSB dot */}
+                          <View style={{
+                            position: 'absolute', left: x - 3, top: toY(last.tsb) - 3,
+                            width: 6, height: 6, borderRadius: 3,
+                            backgroundColor: last.tsb >= 0 ? '#22c55e' : '#ef4444',
+                            zIndex: 3,
+                          }} />
+                          <Text style={{
+                            position: 'absolute', left: x + 8, top: toY(last.tsb) - 7,
+                            fontSize: 9, color: last.tsb >= 0 ? '#22c55e' : '#ef4444', fontWeight: '800',
+                          }}>{last.tsb}</Text>
+                        </>
+                      );
+                    })()}
+
+                    {/* Touch point dots */}
+                    {ffTouchIdx !== null && touchedPoint && (() => {
+                      const x = FF_CHART_PAD_L + ffTouchIdx * stepX;
+                      return (
+                        <>
+                          <View style={{
+                            position: 'absolute', left: x - 4, top: toY(touchedPoint.ctl) - 4,
+                            width: 8, height: 8, borderRadius: 4, backgroundColor: '#f97316',
+                            borderWidth: 2, borderColor: '#fff', zIndex: 15,
+                          }} />
+                          <View style={{
+                            position: 'absolute', left: x - 4, top: toY(touchedPoint.atl) - 4,
+                            width: 8, height: 8, borderRadius: 4, backgroundColor: '#9ca3af',
+                            borderWidth: 2, borderColor: '#fff', zIndex: 15,
+                          }} />
+                          <View style={{
+                            position: 'absolute', left: x - 4, top: toY(touchedPoint.tsb) - 4,
+                            width: 8, height: 8, borderRadius: 4,
+                            backgroundColor: touchedPoint.tsb >= 0 ? '#22c55e' : '#ef4444',
+                            borderWidth: 2, borderColor: '#fff', zIndex: 15,
+                          }} />
+                        </>
+                      );
+                    })()}
+
+                    {/* X-axis month labels — evenly spaced */}
+                    <View style={{ position: 'absolute', top: FF_CHART_H + 6, left: FF_CHART_PAD_L, right: FF_CHART_PAD_R }}>
+                      {monthLabels.map((ml, i) => {
+                        const maxLabels = 8;
+                        const showEvery = Math.max(1, Math.ceil(monthLabels.length / maxLabels));
+                        if (i % showEvery !== 0 && i !== monthLabels.length - 1) return null;
+                        const x = ml.idx * stepX;
+                        return (
+                          <Text key={`ml-${i}`} style={{
+                            position: 'absolute', left: x - 16,
+                            fontSize: 9, color: COLORS.textMuted, width: 34, textAlign: 'center',
+                            fontWeight: '500',
+                          }}>{ml.label}</Text>
+                        );
+                      })}
+                    </View>
+                  </View>
+                );
+              })()}
+
+              {/* Legend — 3 items now */}
+              <View style={{ flexDirection: 'row', justifyContent: 'center', gap: SPACING.lg, marginTop: SPACING.sm }}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-                  <View style={{ width: 16, height: 3, borderRadius: 1.5, backgroundColor: '#f97316' }} />
-                  <Text style={{ fontSize: 10, color: COLORS.textMuted }}>Condizione fisica</Text>
+                  <View style={{ width: 14, height: 3, borderRadius: 1.5, backgroundColor: '#f97316' }} />
+                  <Text style={{ fontSize: 9, color: COLORS.textMuted }}>Condizione fisica</Text>
                 </View>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-                  <View style={{ width: 16, height: 3, borderRadius: 1.5, backgroundColor: '#9ca3af' }} />
-                  <Text style={{ fontSize: 10, color: COLORS.textMuted }}>Affaticamento</Text>
+                  <View style={{ width: 14, height: 3, borderRadius: 1.5, backgroundColor: '#9ca3af' }} />
+                  <Text style={{ fontSize: 9, color: COLORS.textMuted }}>Affaticamento</Text>
+                </View>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                  <View style={{ width: 14, height: 3, borderRadius: 1.5, backgroundColor: '#22c55e' }} />
+                  <Text style={{ fontSize: 9, color: COLORS.textMuted }}>Forma fisica</Text>
                 </View>
               </View>
 
