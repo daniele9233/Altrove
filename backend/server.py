@@ -3709,17 +3709,166 @@ async def get_decoupling_history():
     return {"decoupling_history": decoupling_history}
 
 
+@api_router.get("/fitness-freshness")
+async def get_fitness_freshness():
+    """
+    Fitness & Freshness — Banister Impulse-Response Model (1975).
+
+    Calculates daily training load (TRIMP) and derives:
+    - CTL (Chronic Training Load / Fitness): 42-day EMA
+    - ATL (Acute Training Load / Fatigue): 7-day EMA
+    - TSB (Training Stress Balance / Form): CTL - ATL
+
+    TRIMP formula (Lucia's method, simplified for HR-only data):
+      TRIMP = duration_min × intensity_factor
+      intensity_factor = (avg_hr - resting_hr) / (max_hr - resting_hr)
+
+    If no HR data: TRIMP ≈ duration_min × 0.6 (moderate intensity default)
+
+    References:
+    - Banister EW (1991). Modeling elite athletic performance.
+    - Lucia A (2003). Training impulse and HR zones.
+    - Coggan (2003). Training and Racing with a Power Meter.
+    """
+    from datetime import date as dt_date
+
+    profile = await db.profile.find_one({}, {"_id": 0}) or {}
+    max_hr = profile.get("max_hr", 180)
+    resting_hr = profile.get("resting_hr", 50)  # Default resting HR
+
+    all_runs = await db.runs.find(
+        {"date": {"$gte": "2025-01-01"}},
+        {"_id": 0, "date": 1, "distance_km": 1, "duration_minutes": 1,
+         "avg_hr": 1, "max_hr": 1}
+    ).sort("date", 1).to_list(5000)
+
+    if not all_runs:
+        return {"fitness_freshness": [], "current": {}}
+
+    # ---- Step 1: Calculate daily TRIMP ----
+    daily_trimp: dict = {}
+    for run in all_runs:
+        run_date = run.get("date", "")[:10]
+        dur = run.get("duration_minutes", 0)
+        avg_hr = run.get("avg_hr")
+
+        if not run_date or dur <= 0:
+            continue
+
+        # Calculate intensity factor
+        if avg_hr and avg_hr > resting_hr and max_hr > resting_hr:
+            hr_reserve = (avg_hr - resting_hr) / (max_hr - resting_hr)
+            hr_reserve = max(0.0, min(1.0, hr_reserve))
+            # TRIMP = duration × HR reserve ratio × exponential weighting
+            # Simplified Lucia TRIMP: higher HR zones get exponential boost
+            trimp = dur * hr_reserve * (0.64 * math.exp(1.92 * hr_reserve))
+        else:
+            # No HR: assume moderate effort (HR reserve ~0.55)
+            trimp = dur * 0.55 * (0.64 * math.exp(1.92 * 0.55))
+
+        # Accumulate if multiple runs on same day
+        daily_trimp[run_date] = daily_trimp.get(run_date, 0) + trimp
+
+    if not daily_trimp:
+        return {"fitness_freshness": [], "current": {}}
+
+    # ---- Step 2: Build continuous daily timeline ----
+    sorted_dates = sorted(daily_trimp.keys())
+    start_date = dt_date.fromisoformat(sorted_dates[0])
+    end_date = dt_date.today()
+
+    # EMA constants
+    CTL_DAYS = 42  # Fitness time constant
+    ATL_DAYS = 7   # Fatigue time constant
+    alpha_ctl = 2.0 / (CTL_DAYS + 1)  # EMA smoothing factor
+    alpha_atl = 2.0 / (ATL_DAYS + 1)
+
+    ctl = 0.0
+    atl = 0.0
+    timeline = []
+
+    current_date = start_date
+    while current_date <= end_date:
+        date_str = current_date.isoformat()
+        day_trimp = daily_trimp.get(date_str, 0)
+
+        # Exponential Moving Average
+        ctl = ctl + alpha_ctl * (day_trimp - ctl)
+        atl = atl + alpha_atl * (day_trimp - atl)
+        tsb = ctl - atl
+
+        # Only output weekly snapshots to keep response size manageable
+        # Plus always include the last 14 days for detail
+        days_to_end = (end_date - current_date).days
+        is_weekly = current_date.weekday() == 0  # Monday
+        if is_weekly or days_to_end <= 14 or current_date == end_date:
+            timeline.append({
+                "date": date_str,
+                "trimp": round(day_trimp, 1),
+                "ctl": round(ctl, 1),
+                "atl": round(atl, 1),
+                "tsb": round(tsb, 1),
+            })
+
+        current_date += timedelta(days=1)
+
+    # ---- Step 3: Current status ----
+    current_ctl = round(ctl, 1)
+    current_atl = round(atl, 1)
+    current_tsb = round(tsb, 1)
+
+    # Determine form status
+    if current_tsb > 10:
+        form_status = "Fresco"
+        form_color = "green"
+    elif current_tsb > -10:
+        form_status = "Neutro"
+        form_color = "yellow"
+    elif current_tsb > -25:
+        form_status = "Affaticato"
+        form_color = "orange"
+    else:
+        form_status = "Sovrallenamento"
+        form_color = "red"
+
+    # CTL trend (last 7 days)
+    ctl_7d_ago = None
+    for entry in reversed(timeline):
+        if entry["date"] <= (end_date - timedelta(days=7)).isoformat():
+            ctl_7d_ago = entry["ctl"]
+            break
+    ctl_trend = round(current_ctl - ctl_7d_ago, 1) if ctl_7d_ago is not None else 0
+
+    return {
+        "fitness_freshness": timeline,
+        "current": {
+            "ctl": current_ctl,
+            "atl": current_atl,
+            "tsb": current_tsb,
+            "ctl_trend": ctl_trend,
+            "form_status": form_status,
+            "form_color": form_color,
+        },
+    }
+
+
 @api_router.get("/prediction-history")
 async def get_prediction_history():
     """
-    Composite Race Prediction Engine (CRPE).
+    Race Predictions v2 — Based purely on Daniels' VDOT.
 
-    Combines 3 methods weighted by reliability:
-    - Method 1 (50%): Riegel Best Effort with HR correction
-    - Method 2 (30%): VDOT-based from Daniels
-    - Method 3 (20%): Threshold Pace from profile
+    Logic:
+    - For each month, find the best QUALITY run (scored by distance x effort)
+    - Calculate VDOT from that run using Daniels' formula
+    - Predict race times from VDOT using predict_time_from_vdot()
+    - NO Riegel on short segments (the source of previous errors)
+    - Fatigue factors for longer distances (1.02 HM, 1.04 M)
+    - Monthly aggregation from 2025-01 to present
 
-    Monthly aggregation from 2025 to present.
+    Validation:
+    - Min 3km distance, pace 2:30-9:00/km range
+    - VDOT capped at 55 (realistic for amateur sub-elite)
+    - Predictions validated: 5K 15-35min, 10K 32-75min, HM 1:10-2:45, M 2:30-5:30
     """
     from datetime import date as dt_date
 
@@ -3732,16 +3881,18 @@ async def get_prediction_history():
     MIN_DISTANCE_KM = 3.0
     MIN_PACE_SEC = 150   # 2:30/km
     MAX_PACE_SEC = 540   # 9:00/km
-    MAX_VDOT_CAP = 65.0
+    MAX_VDOT_CAP = 55.0  # Realistic cap for trained amateur
 
     TARGET_DISTANCES = [("5km", 5.0), ("10km", 10.0), ("21.1km", 21.1), ("42.2km", 42.195)]
     FATIGUE = {"5km": 1.0, "10km": 1.0, "21.1km": 1.02, "42.2km": 1.04}
-    RIEGEL_EXP = 1.06
 
-    # Weight for each method
-    W_RIEGEL = 0.50
-    W_VDOT = 0.30
-    W_THRESHOLD = 0.20
+    # Validation ranges (minutes) — reject predictions outside these
+    VALID_RANGES = {
+        "5km": (15, 35),       # 3:00/km to 7:00/km
+        "10km": (32, 75),      # 3:12/km to 7:30/km
+        "21.1km": (70, 165),   # 3:19/km to 7:49/km  (1:10 to 2:45)
+        "42.2km": (150, 330),  # 3:33/km to 7:49/km  (2:30 to 5:30)
+    }
 
     # ---- helpers ----
     def _fmt_time(minutes: float) -> str:
@@ -3755,29 +3906,9 @@ async def get_prediction_history():
         pace_s = (minutes * 60) / dist_km
         return f"{int(pace_s // 60)}:{int(pace_s % 60):02d}"
 
-    def _riegel(t1: float, d1: float, d2: float) -> float:
-        """Riegel formula: T2 = T1 * (D2/D1)^1.06. t1 in minutes."""
-        return t1 * (d2 / d1) ** RIEGEL_EXP
-
-    def _effort_score(dist: float, avg_hr: float, max_hr: float) -> float:
-        """Score a run: distance * (avg_hr / max_hr). Higher = better effort."""
-        if not avg_hr or not max_hr or max_hr <= 0:
-            return dist * 0.75  # assume moderate effort if no HR
-        return dist * (avg_hr / max_hr)
-
-    def _hr_correct_time(time_min: float, avg_hr: float, max_hr: float) -> float:
-        """If avg_hr < 90% max_hr, runner wasn't at full effort. Correct downward."""
-        if not avg_hr or not max_hr or max_hr <= 0:
-            return time_min
-        ratio = avg_hr / max_hr
-        if ratio >= 0.90:
-            return time_min
-        return time_min * (ratio ** 0.8)
-
     # ---- load data ----
     profile = await db.profile.find_one({}, {"_id": 0}) or {}
     max_hr = profile.get("max_hr", 180)
-    vdot_paces = profile.get("vdot_paces", {})
 
     all_runs = await db.runs.find(
         {"date": {"$gte": "2025-01-01"}},
@@ -3785,26 +3916,11 @@ async def get_prediction_history():
          "avg_pace": 1, "avg_hr": 1}
     ).sort("date", 1).to_list(5000)
 
-    # ---- Method 3: Threshold-based VDOT (constant across months) ----
-    threshold_vdot = None
-    threshold_pace_str = vdot_paces.get("threshold", "")
-    if threshold_pace_str:
-        thresh_secs = _pace_to_seconds(threshold_pace_str)
-        if thresh_secs > 0:
-            # Threshold pace ≈ 88% VO2max → run 1 km at threshold pace, compute VDOT
-            # Use a standard threshold distance (e.g. 1 km at threshold pace) then
-            # back-calculate: threshold is ~88% of VDOT, so actual VDOT = computed / 0.88
-            thresh_1km_min = thresh_secs / 60.0
-            raw_vdot = calculate_vdot_from_race(1.0, thresh_1km_min)
-            if raw_vdot:
-                threshold_vdot = min(raw_vdot / 0.88, MAX_VDOT_CAP)
-
-    # ---- group runs by month ----
+    # ---- group valid runs by month ----
     today = dt_date.today()
     start_year, start_month = 2025, 1
     end_year, end_month = today.year, today.month
 
-    # Build list of all months from 2025-01 to current
     all_months = []
     y, m = start_year, start_month
     while (y, m) <= (end_year, end_month):
@@ -3814,8 +3930,7 @@ async def get_prediction_history():
             m = 1
             y += 1
 
-    # Index valid runs by month
-    runs_by_month: dict[tuple[int, int], list] = {mo: [] for mo in all_months}
+    runs_by_month: dict = {mo: [] for mo in all_months}
     for run in all_runs:
         dist = run.get("distance_km", 0)
         dur = run.get("duration_minutes", 0)
@@ -3855,12 +3970,16 @@ async def get_prediction_history():
             })
             continue
 
-        # Find best run: scored by distance * (avg_hr / max_hr)
-        best_run = max(month_runs, key=lambda r: _effort_score(
-            r.get("distance_km", 0),
-            r.get("avg_hr", 0) or 0,
-            max_hr
-        ))
+        # Score each run by quality: distance × (avg_hr / max_hr)
+        # Longer, harder runs produce more reliable VDOT
+        def _run_quality(r):
+            d = r.get("distance_km", 0)
+            hr = r.get("avg_hr") or 0
+            if hr > 0 and max_hr > 0:
+                return d * (hr / max_hr)
+            return d * 0.70  # no HR → assume moderate effort
+
+        best_run = max(month_runs, key=_run_quality)
         b_dist = best_run.get("distance_km", 0)
         b_dur = best_run.get("duration_minutes", 0)
         b_hr = best_run.get("avg_hr")
@@ -3868,79 +3987,50 @@ async def get_prediction_history():
         b_pace_str = f"{int(b_pace_s // 60)}:{int(b_pace_s % 60):02d}"
         b_time_str = _fmt_time(b_dur)
 
-        best_effort_desc = f"{b_dist:.2f} km in {b_time_str} ({b_pace_str}/km"
-        if b_hr:
-            best_effort_desc += f", FC {int(b_hr)}"
-        best_effort_desc += ")"
-
-        # ---- Method 1: Riegel Best Effort (50%) ----
-        # HR-corrected time for Riegel projection
-        corrected_time = _hr_correct_time(b_dur, b_hr, max_hr)
-
-        riegel_preds = {}
-        for tname, tkm in TARGET_DISTANCES:
-            t_proj = _riegel(corrected_time, b_dist, tkm)
-            t_proj *= FATIGUE[tname]
-            riegel_preds[tname] = t_proj
-
-        # ---- Method 2: VDOT-based (30%) ----
+        # ---- Calculate VDOT from best run (Daniels' formula) ----
         run_vdot = calculate_vdot_from_race(b_dist, b_dur)
-        if run_vdot and run_vdot > MAX_VDOT_CAP:
-            run_vdot = MAX_VDOT_CAP
+        if not run_vdot:
+            prediction_history.append({
+                "month": month_key, "month_label": month_label,
+                "best_effort": f"{b_dist:.1f}km in {b_time_str} ({b_pace_str}/km)",
+                "best_effort_distance": round(b_dist, 2),
+                "best_effort_time": b_time_str,
+                "best_effort_pace": b_pace_str,
+                "best_effort_hr": int(b_hr) if b_hr else None,
+                "vdot": None, "predictions": None,
+            })
+            continue
 
-        vdot_preds = {}
-        if run_vdot:
-            for tname, tkm in TARGET_DISTANCES:
-                pt = predict_time_from_vdot(run_vdot, tkm)
-                if pt:
-                    vdot_preds[tname] = pt * FATIGUE[tname]
+        # Cap VDOT
+        run_vdot = min(run_vdot, MAX_VDOT_CAP)
 
-        # ---- Method 3: Threshold Pace (20%) ----
-        thresh_preds = {}
-        if threshold_vdot:
-            for tname, tkm in TARGET_DISTANCES:
-                pt = predict_time_from_vdot(threshold_vdot, tkm)
-                if pt:
-                    thresh_preds[tname] = pt * FATIGUE[tname]
-
-        # ---- Weighted composite ----
-        composite_preds = {}
+        # ---- Predict race times from VDOT ----
+        preds = {}
         for tname, tkm in TARGET_DISTANCES:
-            total_weight = 0.0
-            weighted_time = 0.0
-
-            if tname in riegel_preds:
-                weighted_time += W_RIEGEL * riegel_preds[tname]
-                total_weight += W_RIEGEL
-            if tname in vdot_preds:
-                weighted_time += W_VDOT * vdot_preds[tname]
-                total_weight += W_VDOT
-            if tname in thresh_preds:
-                weighted_time += W_THRESHOLD * thresh_preds[tname]
-                total_weight += W_THRESHOLD
-
-            if total_weight > 0:
-                final_time = weighted_time / total_weight
-                composite_preds[tname] = {
-                    "time_min": round(final_time, 2),
-                    "time_str": _fmt_time(final_time),
-                    "pace": _fmt_pace(final_time, tkm),
-                }
-
-        effective_vdot = run_vdot if run_vdot else None
-        if effective_vdot:
-            effective_vdot = round(effective_vdot, 1)
+            pt = predict_time_from_vdot(run_vdot, tkm)
+            if not pt:
+                continue
+            pt *= FATIGUE[tname]
+            # Validate prediction is within reasonable range
+            vmin, vmax = VALID_RANGES[tname]
+            if pt < vmin or pt > vmax:
+                continue
+            preds[tname] = {
+                "time_min": round(pt, 2),
+                "time_str": _fmt_time(pt),
+                "pace": _fmt_pace(pt, tkm),
+            }
 
         prediction_history.append({
             "month": month_key,
             "month_label": month_label,
-            "best_effort": best_effort_desc,
+            "best_effort": f"{b_dist:.1f}km in {b_time_str} ({b_pace_str}/km" + (f", FC {int(b_hr)}" if b_hr else "") + ")",
             "best_effort_distance": round(b_dist, 2),
             "best_effort_time": b_time_str,
             "best_effort_pace": b_pace_str,
             "best_effort_hr": int(b_hr) if b_hr else None,
-            "vdot": effective_vdot,
-            "predictions": composite_preds if composite_preds else None,
+            "vdot": round(run_vdot, 1),
+            "predictions": preds if preds else None,
         })
 
     # ---- current = latest month with predictions ----
@@ -3957,7 +4047,6 @@ async def get_prediction_history():
     months_with_preds = [e for e in prediction_history if e["predictions"]]
     if len(months_with_preds) >= 2:
         for period_key, months_back in [("1m", 1), ("3m", 3), ("6m", 6)]:
-            # Find the entry ~months_back before the latest
             target_month = today.month - months_back
             target_year = today.year
             while target_month <= 0:
@@ -5853,9 +5942,69 @@ async def get_injury_risk():
     factors.append({"name": "Giorni di recupero", "score": recovery_score,
                     "description": f"{rest_days} giorni di riposo negli ultimi 14 giorni ({run_days} giorni di corsa)."})
 
+    # 6. Foster Monotony (last 7 days)
+    # Monotony = mean(daily_loads) / stdev(daily_loads)
+    # Foster (1998): monotony > 2.0 = overtraining risk
+    monotony_score = 0
+    monotony_value = 0.0
+    strain_value = 0.0
+    last_7_days_loads = []
+    for d in range(7):
+        day = (today - timedelta(days=d)).isoformat()
+        day_runs = [r for r in valid_runs if r.get("date", "")[:10] == day]
+        day_load = sum(r.get("distance_km", 0) * (r.get("avg_hr", 140) / max_hr) for r in day_runs) if day_runs else 0
+        last_7_days_loads.append(day_load)
+
+    if last_7_days_loads and sum(last_7_days_loads) > 0:
+        import statistics
+        mean_load = statistics.mean(last_7_days_loads)
+        sd_load = statistics.stdev(last_7_days_loads) if len(last_7_days_loads) > 1 else 0.01
+        if sd_load > 0:
+            monotony_value = round(mean_load / sd_load, 2)
+        else:
+            monotony_value = 0
+        strain_value = round(sum(last_7_days_loads) * monotony_value, 1)
+
+        if monotony_value > 2.5:
+            monotony_score = 80
+            alerts.append({"level": "critical", "message": f"Monotonia di Foster a {monotony_value} (critico >2.0). I tuoi allenamenti sono troppo simili. Varia intensità e volume!"})
+            recommendations.append("Foster (1998): varia il carico giornaliero. Alterna giorni pesanti e leggeri.")
+        elif monotony_value > 2.0:
+            monotony_score = 55
+            alerts.append({"level": "high", "message": f"Monotonia di Foster a {monotony_value} (soglia 2.0). Rischio sovrallenamento."})
+        elif monotony_value > 1.5:
+            monotony_score = 25
+        else:
+            monotony_score = 5
+    factors.append({"name": "Monotonia di Foster", "score": monotony_score,
+                    "description": f"Monotonia: {monotony_value} (soglia: 2.0). Strain: {strain_value}."})
+
+    # 7. ACSM 10% Rule
+    # American College of Sports Medicine: weekly volume should not increase >10%
+    acsm_score = 0
+    if len(weekly_load) >= 2:
+        curr_wk = weekly_load[-1]["km"]
+        prev_wk = weekly_load[-2]["km"]
+        if prev_wk > 0:
+            acsm_increase = round((curr_wk - prev_wk) / prev_wk * 100, 1)
+            if acsm_increase > 15:
+                acsm_score = 70
+                alerts.append({"level": "high", "message": f"Regola ACSM 10%: incremento del {acsm_increase}%! Rischio infortunio."})
+                safe_km = round(prev_wk * 1.10, 1)
+                recommendations.append(f"ACSM: il volume sicuro questa settimana è max {safe_km}km (attuale: {curr_wk}km).")
+            elif acsm_increase > 10:
+                acsm_score = 40
+                alerts.append({"level": "medium", "message": f"Regola ACSM 10%: incremento del {acsm_increase}%. Al limite."})
+            elif acsm_increase > 5:
+                acsm_score = 15
+            else:
+                acsm_score = 5
+        factors.append({"name": "Regola ACSM 10%", "score": acsm_score,
+                        "description": f"Incremento settimanale: {'+' if prev_wk > 0 and curr_wk > prev_wk else ''}{round((curr_wk - prev_wk) / max(prev_wk, 0.1) * 100, 1)}% (max consigliato: 10%)."})
+
     # ---- OVERALL SCORE ----
-    weights = [0.30, 0.25, 0.20, 0.15, 0.10]  # ACWR, overload, injury, intensity, recovery
-    scores = [acwr_score, overload_score, injury_score, intensity_score, recovery_score]
+    weights = [0.25, 0.15, 0.15, 0.10, 0.10, 0.15, 0.10]  # ACWR, overload, injury, intensity, recovery, monotony, ACSM
+    scores = [acwr_score, overload_score, injury_score, intensity_score, recovery_score, monotony_score, acsm_score]
     overall_score = round(sum(w * s for w, s in zip(weights, scores)))
 
     # General recommendations

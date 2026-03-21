@@ -61,7 +61,7 @@ export const api = {
   getCadenceHistory: () => apiFetch('/cadence-history'),
   getDecouplingHistory: () => apiFetch('/decoupling-history'),
   getPredictionHistory: () => apiFetch('/prediction-history'),
+  getFitnessFreshness: () => apiFetch('/fitness-freshness'),
   getBestEfforts: () => apiFetch('/best-efforts'),
   getBadges: () => apiFetch('/badges'),
-  getAvatar: () => apiFetch('/avatar'),
 };
