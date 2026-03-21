@@ -3852,6 +3852,242 @@ async def get_fitness_freshness():
     }
 
 
+@api_router.get("/supercompensation")
+async def get_supercompensation():
+    """
+    Supercompensation — Training Adaptation & Projection Engine.
+
+    Based on the Fitness-Fatigue (Impulse-Response) model and exercise
+    physiology research on structural adaptation timelines:
+
+    Adaptation timelines (peer-reviewed ranges):
+    - Neuromuscular (sprint, speed): 3-7 days (Sale 1988, Häkkinen 1985)
+    - Metabolic/enzymatic (threshold, intervals): 7-14 days (Holloszy 1984)
+    - Structural (capillary, mitochondrial, long runs): 14-21 days (Howald 1985)
+
+    Each workout is treated as a "biological investment" that matures over time.
+    The maturation curve follows a sigmoid: slow start → rapid gains → plateau.
+    """
+    from datetime import date as dt_date
+
+    profile = await db.profile.find_one({}, {"_id": 0}) or {}
+    max_hr = profile.get("max_hr", 180)
+    resting_hr = profile.get("resting_hr", 50)
+
+    # Fetch last 30 days of runs for maturation + last 90 days for projections
+    cutoff_90 = (dt_date.today() - timedelta(days=90)).isoformat()
+    all_runs = await db.runs.find(
+        {"date": {"$gte": cutoff_90}},
+        {"_id": 0, "date": 1, "distance_km": 1, "duration_minutes": 1,
+         "avg_hr": 1, "max_hr": 1, "avg_pace": 1, "run_type": 1,
+         "avg_cadence": 1}
+    ).sort("date", -1).to_list(500)
+
+    if not all_runs:
+        return {"maturation": [], "projection": [], "golden_day": None, "training_roi": [], "summary": {}}
+
+    today = dt_date.today()
+
+    # ---- Classify workout type and assign adaptation parameters ----
+    ADAPTATION_MAP = {
+        # type: (category, days_to_peak, benefit_label, capital_label)
+        "ripetute": ("metabolic", 10, "+5% Efficienza Mitocondriale", "Elevato (Acido Lattico)"),
+        "ripetute_salita": ("neuromuscular", 7, "+8% Reattività Neuromuscolare", "Massimo (Potenza)"),
+        "fartlek": ("metabolic", 10, "+4% Soglia Anaerobica", "Elevato (Misto)"),
+        "progressivo": ("metabolic", 12, "+4% Economia di Corsa", "Alto (Progressione)"),
+        "tempo_run": ("metabolic", 10, "+5% Soglia Lattacida", "Elevato (Soglia)"),
+        "lungo": ("structural", 14, "+3% Densità Capillare", "Medio (Resistenza)"),
+        "corsa_lenta": ("structural", 14, "+2% Base Aerobica", "Basso (Recupero)"),
+        "corsa_media": ("metabolic", 10, "+3% Efficienza Aerobica", "Medio (Aerobico)"),
+        "recupero": ("structural", 7, "+1% Recupero Attivo", "Basso (Rigenerazione)"),
+        "gara": ("metabolic", 12, "+6% Adattamento Gara", "Massimo (Competizione)"),
+        "test": ("metabolic", 10, "+3% Calibrazione Sistema", "Alto (Test)"),
+    }
+    DEFAULT_ADAPT = ("metabolic", 10, "+3% Adattamento Generale", "Medio (Generico)")
+
+    # ---- 1. Maturation bars (last 21 days of workouts) ----
+    maturation = []
+    cutoff_21 = today - timedelta(days=21)
+    for run in all_runs:
+        run_date_str = run.get("date", "")[:10]
+        if not run_date_str:
+            continue
+        run_date = dt_date.fromisoformat(run_date_str)
+        if run_date < cutoff_21:
+            continue
+
+        run_type = run.get("run_type", "corsa_lenta") or "corsa_lenta"
+        adapt = ADAPTATION_MAP.get(run_type, DEFAULT_ADAPT)
+        cat, peak_days, benefit, capital = adapt
+
+        days_elapsed = (today - run_date).days
+        # Sigmoid maturation: 0% at day 0, ~100% at peak_days
+        # f(x) = 1 / (1 + e^(-k*(x - mid))) where mid = peak_days/2
+        mid = peak_days / 2.0
+        k = 6.0 / peak_days  # Steepness
+        if days_elapsed >= peak_days:
+            pct = 100
+        else:
+            raw = 1.0 / (1.0 + math.exp(-k * (days_elapsed - mid)))
+            # Normalize so f(0)→~0% and f(peak_days)→100%
+            f0 = 1.0 / (1.0 + math.exp(-k * (0 - mid)))
+            f_peak = 1.0 / (1.0 + math.exp(-k * (peak_days - mid)))
+            pct = int(((raw - f0) / (f_peak - f0)) * 100)
+
+        # Status
+        if pct >= 100:
+            status = "active"
+            status_label = "Attivo!"
+            status_emoji = "💎"
+        elif pct >= 50:
+            status = "consolidating"
+            status_label = "Consolidamento"
+            status_emoji = "🟩"
+        else:
+            status = "processing"
+            status_label = "In lavorazione"
+            status_emoji = "🟦"
+
+        benefit_date = (run_date + timedelta(days=peak_days)).isoformat()
+
+        # Format pace
+        pace_str = run.get("avg_pace", "")
+        dist = round(run.get("distance_km", 0), 1)
+        dur = round(run.get("duration_minutes", 0))
+
+        maturation.append({
+            "run_type": run_type,
+            "run_type_label": run_type.replace("_", " ").title(),
+            "date": run_date_str,
+            "days_elapsed": days_elapsed,
+            "peak_days": peak_days,
+            "pct": min(pct, 100),
+            "status": status,
+            "status_label": status_label,
+            "status_emoji": status_emoji,
+            "benefit": benefit,
+            "benefit_date": benefit_date,
+            "capital": capital,
+            "category": cat,
+            "distance_km": dist,
+            "duration_min": dur,
+            "pace": pace_str,
+        })
+
+    # Sort by date desc (most recent first)
+    maturation.sort(key=lambda x: x["date"], reverse=True)
+
+    # ---- 2. Future projection (14-day fitness forecast) ----
+    # Calculate current CTL/ATL using same logic as fitness-freshness
+    daily_trimp: dict = {}
+    all_runs_sorted = sorted(all_runs, key=lambda r: r.get("date", ""))
+    for run in all_runs_sorted:
+        run_date = run.get("date", "")[:10]
+        dur = run.get("duration_minutes", 0)
+        avg_hr = run.get("avg_hr")
+        if not run_date or dur <= 0:
+            continue
+        if avg_hr and avg_hr > resting_hr and max_hr > resting_hr:
+            hr_res = max(0.0, min(1.0, (avg_hr - resting_hr) / (max_hr - resting_hr)))
+            trimp = dur * hr_res * (0.64 * math.exp(1.92 * hr_res))
+        else:
+            trimp = dur * 0.55 * (0.64 * math.exp(1.92 * 0.55))
+        daily_trimp[run_date] = daily_trimp.get(run_date, 0) + trimp
+
+    # Build CTL/ATL up to today
+    if daily_trimp:
+        sorted_dates = sorted(daily_trimp.keys())
+        start = dt_date.fromisoformat(sorted_dates[0])
+        alpha_ctl = 2.0 / 43.0
+        alpha_atl = 2.0 / 8.0
+        ctl = 0.0
+        atl = 0.0
+        d = start
+        while d <= today:
+            t = daily_trimp.get(d.isoformat(), 0)
+            ctl = ctl + alpha_ctl * (t - ctl)
+            atl = atl + alpha_atl * (t - atl)
+            d += timedelta(days=1)
+    else:
+        ctl = 0.0
+        atl = 0.0
+
+    # Project 14 days into the future (no new training → fatigue drops, fitness holds)
+    projection = []
+    proj_ctl = ctl
+    proj_atl = atl
+    for day_offset in range(0, 15):
+        proj_date = today + timedelta(days=day_offset)
+        proj_ctl = proj_ctl + alpha_ctl * (0 - proj_ctl)  # No training
+        proj_atl = proj_atl + alpha_atl * (0 - proj_atl)  # Fatigue drops faster
+        proj_tsb = proj_ctl - proj_atl
+        projection.append({
+            "date": proj_date.isoformat(),
+            "day_offset": day_offset,
+            "fitness": round(proj_ctl, 1),
+            "fatigue": round(proj_atl, 1),
+            "form": round(proj_tsb, 1),
+        })
+
+    # ---- 3. Golden Day (best day for peak performance in next 14 days) ----
+    golden_day = None
+    best_form = -999
+    for p in projection:
+        if p["day_offset"] >= 2 and p["form"] > best_form:
+            best_form = p["form"]
+            golden_day = p
+
+    # Also calculate accumulated km in last 21 days
+    km_accumulated = sum(r.get("distance_km", 0) for r in all_runs
+                        if r.get("date", "")[:10] >= cutoff_21.isoformat())
+
+    # ---- 4. Training ROI summary ----
+    roi_categories = {
+        "neuromuscular": {"label": "Neuromuscolare", "runs": 0, "km": 0,
+                         "benefit": "Reattività e Potenza", "timeline": "3-7 giorni", "icon": "⚡"},
+        "metabolic": {"label": "Metabolico", "runs": 0, "km": 0,
+                     "benefit": "Efficienza e Soglia", "timeline": "7-14 giorni", "icon": "🔥"},
+        "structural": {"label": "Strutturale", "runs": 0, "km": 0,
+                      "benefit": "Capillari e Mitocondri", "timeline": "14-21 giorni", "icon": "🧬"},
+    }
+    for m in maturation:
+        cat = m["category"]
+        if cat in roi_categories:
+            roi_categories[cat]["runs"] += 1
+            roi_categories[cat]["km"] += m["distance_km"]
+
+    training_roi = []
+    for cat_key in ["neuromuscular", "metabolic", "structural"]:
+        c = roi_categories[cat_key]
+        c["km"] = round(c["km"], 1)
+        training_roi.append({**c, "category": cat_key})
+
+    # ---- Summary stats ----
+    active_count = sum(1 for m in maturation if m["status"] == "active")
+    processing_count = sum(1 for m in maturation if m["status"] == "processing")
+    consolidating_count = sum(1 for m in maturation if m["status"] == "consolidating")
+
+    return {
+        "maturation": maturation,
+        "projection": projection,
+        "golden_day": {
+            "date": golden_day["date"] if golden_day else None,
+            "days_until": golden_day["day_offset"] if golden_day else None,
+            "form_value": golden_day["form"] if golden_day else None,
+            "km_accumulated": round(km_accumulated, 1),
+        } if golden_day else None,
+        "training_roi": training_roi,
+        "summary": {
+            "total_workouts": len(maturation),
+            "active": active_count,
+            "consolidating": consolidating_count,
+            "processing": processing_count,
+            "current_fitness": round(ctl, 1),
+            "current_fatigue": round(atl, 1),
+        },
+    }
+
+
 @api_router.get("/prediction-history")
 async def get_prediction_history():
     """

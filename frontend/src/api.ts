@@ -63,4 +63,5 @@ export const api = {
   getFitnessFreshness: () => apiFetch('/fitness-freshness'),
   getBestEfforts: () => apiFetch('/best-efforts'),
   getBadges: () => apiFetch('/badges'),
+  getSupercompensation: () => apiFetch('/supercompensation'),
 };

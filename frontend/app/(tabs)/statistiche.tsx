@@ -90,6 +90,18 @@ export default function StatisticheScreen() {
           </TouchableOpacity>
         </View>
 
+        {/* Supercompensazione button */}
+        <View style={{ paddingHorizontal: SPACING.md, marginBottom: SPACING.md }}>
+          <TouchableOpacity
+            style={[styles.calcButton, { borderColor: '#22c55e40', flexDirection: 'row', justifyContent: 'center', gap: SPACING.sm, paddingVertical: SPACING.md }]}
+            onPress={() => router.push('/supercompensazione')}
+          >
+            <Ionicons name="flask" size={18} color="#22c55e" />
+            <Text style={[styles.calcButtonText, { color: '#22c55e' }]}>SUPERCOMPENSAZIONE</Text>
+            <Ionicons name="chevron-forward" size={14} color="#22c55e" />
+          </TouchableOpacity>
+        </View>
+
         {/* VO2max Ring Gauge with Target */}
         <View style={styles.vo2Card}>
           <View style={styles.vo2Ring}>
