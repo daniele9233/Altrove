@@ -1342,6 +1342,11 @@ async def create_run(run: RunCreate):
     run_dict["id"] = make_id()
     await db.runs.insert_one(run_dict)
     run_dict.pop("_id", None)
+    # Auto-update badges after new run
+    try:
+        await compute_badges()
+    except Exception as e:
+        logger.warning(f"Badge compute after manual run: {e}")
     return run_dict
 
 @api_router.post("/ai/analyze-run")
