@@ -3264,6 +3264,37 @@ async def sync_strava_activities():
                     best_efforts_raw = detail.get("best_efforts", [])
                     if best_efforts_raw:
                         await _process_best_efforts(best_efforts_raw, run_doc)
+
+                # --- HR Stream (for HR chart) ---
+                try:
+                    stream_resp = await http.get(
+                        f"https://www.strava.com/api/v3/activities/{act['strava_id']}/streams",
+                        headers={"Authorization": f"Bearer {token}"},
+                        params={"keys": "heartrate,time", "key_type": "time"}
+                    )
+                    if stream_resp.status_code == 200:
+                        streams = stream_resp.json()
+                        hr_data = None
+                        time_data = None
+                        for s in streams:
+                            if s.get("type") == "heartrate":
+                                hr_data = s.get("data", [])
+                            elif s.get("type") == "time":
+                                time_data = s.get("data", [])
+                        if hr_data and time_data:
+                            # Downsample to ~200 points max for performance
+                            if len(hr_data) > 200:
+                                step = len(hr_data) // 200
+                                hr_data = hr_data[::step]
+                                time_data = time_data[::step]
+                            await db.runs.update_one(
+                                {"id": run_doc["id"]},
+                                {"$set": {"hr_stream": hr_data, "time_stream": time_data}}
+                            )
+                            logger.info(f"HR stream saved for run {run_doc['id']} ({len(hr_data)} points)")
+                except Exception as e:
+                    logger.warning(f"HR stream fetch failed for {act['strava_id']}: {e}")
+
         except Exception as e:
             logger.error(f"Error fetching detailed activity {act['strava_id']}: {e}")
 
@@ -3329,8 +3360,9 @@ async def resync_strava_details():
     for run in runs:
         needs_cadence = not run.get("avg_cadence")
         needs_splits = not run.get("splits")
+        needs_hr_stream = not run.get("hr_stream")
 
-        if not needs_cadence and not needs_splits:
+        if not needs_cadence and not needs_splits and not needs_hr_stream:
             continue
 
         try:
@@ -3379,6 +3411,33 @@ async def resync_strava_details():
                         run_doc = await db.runs.find_one({"id": run["id"]}, {"_id": 0})
                         if run_doc:
                             await _process_best_efforts(best_efforts_raw, run_doc)
+
+                    # HR Stream
+                    if needs_hr_stream:
+                        try:
+                            sr = await http.get(
+                                f"https://www.strava.com/api/v3/activities/{run['strava_id']}/streams",
+                                headers={"Authorization": f"Bearer {token}"},
+                                params={"keys": "heartrate,time", "key_type": "time"}
+                            )
+                            if sr.status_code == 200:
+                                streams = sr.json()
+                                hr_d = None
+                                time_d = None
+                                for s in streams:
+                                    if s.get("type") == "heartrate":
+                                        hr_d = s.get("data", [])
+                                    elif s.get("type") == "time":
+                                        time_d = s.get("data", [])
+                                if hr_d and time_d:
+                                    if len(hr_d) > 200:
+                                        step = len(hr_d) // 200
+                                        hr_d = hr_d[::step]
+                                        time_d = time_d[::step]
+                                    update_fields["hr_stream"] = hr_d
+                                    update_fields["time_stream"] = time_d
+                        except Exception as e:
+                            logger.warning(f"HR stream backfill failed for {run['strava_id']}: {e}")
 
                     if update_fields:
                         await db.runs.update_one({"id": run["id"]}, {"$set": update_fields})

@@ -9,6 +9,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { COLORS, SPACING, FONT_SIZES, BORDER_RADIUS, SESSION_COLORS, SESSION_ICONS } from '../src/theme';
 import { api } from '../src/api';
 import { Run, AIAnalysis, RunSplit } from '../src/types';
+import Svg, { Path, Line, Circle, Text as SvgText } from 'react-native-svg';
 
 const SCREEN_WIDTH = Dimensions.get('window').width;
 
@@ -398,6 +399,83 @@ export default function RunDetailScreen() {
               <Text style={styles.zoneLabel}>Z4</Text>
               <Text style={styles.zoneLabel}>Z5</Text>
             </View>
+
+            {/* HR Stream Chart */}
+            {run.hr_stream && run.time_stream && run.hr_stream.length > 5 && (() => {
+              const hrData: number[] = run.hr_stream;
+              const timeData: number[] = run.time_stream;
+              const chartW = SCREEN_WIDTH - SPACING.xl * 2 - 32;
+              const chartH = 160;
+              const padLeft = 36;
+              const padBottom = 24;
+              const w = chartW - padLeft;
+              const h = chartH - padBottom;
+              const minHr = Math.max(60, Math.min(...hrData) - 5);
+              const maxHr = Math.min(220, Math.max(...hrData) + 5);
+              const hrRange = maxHr - minHr || 1;
+              const maxTime = timeData[timeData.length - 1] || 1;
+              const avgHr = run.avg_hr || Math.round(hrData.reduce((a: number, b: number) => a + b, 0) / hrData.length);
+
+              // Build SVG path for area fill
+              const points = hrData.map((hr: number, i: number) => {
+                const x = padLeft + (timeData[i] / maxTime) * w;
+                const y = h - ((hr - minHr) / hrRange) * h;
+                return { x, y };
+              });
+              const linePath = points.map((p: {x: number, y: number}, i: number) => `${i === 0 ? 'M' : 'L'}${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ');
+              const areaPath = linePath + ` L${points[points.length - 1].x.toFixed(1)},${h} L${padLeft},${h} Z`;
+              const avgY = h - ((avgHr - minHr) / hrRange) * h;
+
+              // Y-axis labels
+              const yLabels = [minHr, Math.round(minHr + hrRange * 0.25), Math.round(minHr + hrRange * 0.5), Math.round(minHr + hrRange * 0.75), maxHr];
+
+              // X-axis time labels (5 evenly spaced)
+              const xLabels = [0, 1, 2, 3, 4].map(i => {
+                const t = Math.round((maxTime / 4) * i);
+                const mins = Math.floor(t / 60);
+                const secs = t % 60;
+                const hours = Math.floor(mins / 60);
+                if (hours > 0) return `${hours}:${String(mins % 60).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+                return `${mins}:${String(secs).padStart(2, '0')}`;
+              });
+
+              return (
+                <View style={{ marginTop: SPACING.md }}>
+                  <Svg width={chartW} height={chartH} viewBox={`0 0 ${chartW} ${chartH}`}>
+                    {/* Y-axis grid lines + labels */}
+                    {yLabels.map((val, i) => {
+                      const y = h - ((val - minHr) / hrRange) * h;
+                      return (
+                        <React.Fragment key={`y-${i}`}>
+                          <Line x1={padLeft} y1={y} x2={chartW} y2={y} stroke="rgba(255,255,255,0.1)" strokeWidth={0.5} />
+                          <SvgText x={padLeft - 4} y={y + 4} fill="rgba(255,255,255,0.4)" fontSize={9} textAnchor="end">{val}</SvgText>
+                        </React.Fragment>
+                      );
+                    })}
+                    {/* Area fill (red/pink gradient effect) */}
+                    <Path d={areaPath} fill="rgba(239,68,68,0.35)" />
+                    {/* HR line (darker) */}
+                    <Path d={linePath} fill="none" stroke="rgba(239,68,68,0.8)" strokeWidth={1.5} />
+                    {/* Average HR line (white) */}
+                    <Line x1={padLeft} y1={avgY} x2={chartW} y2={avgY} stroke="rgba(255,255,255,0.8)" strokeWidth={1.5} />
+                    {/* Avg HR label */}
+                    <SvgText x={chartW - 2} y={avgY - 4} fill="rgba(255,255,255,0.7)" fontSize={9} textAnchor="end">{avgHr} avg</SvgText>
+                    {/* X-axis time labels */}
+                    {xLabels.map((label, i) => {
+                      const x = padLeft + (i / 4) * w;
+                      return (
+                        <React.Fragment key={`x-${i}`}>
+                          <Circle cx={x} cy={h + 2} r={2} fill="rgba(255,255,255,0.3)" />
+                          <SvgText x={x} y={h + 16} fill="rgba(255,255,255,0.4)" fontSize={9} textAnchor="middle">{label}</SvgText>
+                        </React.Fragment>
+                      );
+                    })}
+                  </Svg>
+                  <Text style={{ color: 'rgba(255,255,255,0.3)', fontSize: 10, textAlign: 'center', marginTop: 2 }}>Tempo (h:m:s)</Text>
+                </View>
+              );
+            })()}
+
           </View>
         )}
 

@@ -22,6 +22,8 @@ export interface Run {
   avg_cadence?: number;
   elevation_gain?: number;
   splits?: RunSplit[];
+  hr_stream?: number[];
+  time_stream?: number[];
 }
 
 export interface TrainingSession {
