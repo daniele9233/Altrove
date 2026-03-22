@@ -1082,20 +1082,21 @@ export default function ProgressiScreen() {
                 const toY = (val: number) => FF_CHART_H - ((val - Math.min(minTsb, -10)) / totalRange) * FF_CHART_H;
 
                 // Touch handler — disables parent scroll while dragging
+                // Line + tooltip STAY visible after release (tap outside chart to dismiss)
+                const clampIdx = (touchX: number) => {
+                  const x = touchX - FF_CHART_PAD_L;
+                  return Math.max(0, Math.min(ff.length - 1, Math.round(x / stepX)));
+                };
                 const handleTouchStart = (evt: any) => {
                   setScrollEnabled(false);
-                  const touchX = evt.nativeEvent.locationX - FF_CHART_PAD_L;
-                  const idx = Math.round(touchX / stepX);
-                  setFfTouchIdx(Math.max(0, Math.min(ff.length - 1, idx)));
+                  setFfTouchIdx(clampIdx(evt.nativeEvent.locationX));
                 };
                 const handleTouchMove = (evt: any) => {
-                  const touchX = evt.nativeEvent.locationX - FF_CHART_PAD_L;
-                  const idx = Math.round(touchX / stepX);
-                  setFfTouchIdx(Math.max(0, Math.min(ff.length - 1, idx)));
+                  setFfTouchIdx(clampIdx(evt.nativeEvent.locationX));
                 };
                 const handleTouchEnd = () => {
                   setScrollEnabled(true);
-                  setFfTouchIdx(null);
+                  // DON'T clear ffTouchIdx — keep the line + tooltip visible
                 };
 
                 const touchedPoint = ffTouchIdx !== null ? ff[ffTouchIdx] : null;
@@ -1358,19 +1359,7 @@ export default function ProgressiScreen() {
                       );
                     })()}
 
-                    {/* Current values at end of lines (Strava-style) */}
-                    {ff.length > 0 && !touchedPoint && (() => {
-                      const last = ff[ff.length - 1];
-                      const endX = FF_CHART_PAD_L + (ff.length - 1) * stepX + 4;
-                      return (
-                        <>
-                          <Text style={{ position: 'absolute', left: endX, top: toY(last.ctl) - 6, fontSize: 9, color: '#f97316', fontWeight: '800' }}>{last.ctl}</Text>
-                          <View style={{ position: 'absolute', left: endX - 7, top: toY(last.ctl) - 3, width: 6, height: 6, borderRadius: 3, backgroundColor: '#f97316', borderWidth: 1.5, borderColor: '#fff' }} />
-                          <Text style={{ position: 'absolute', left: endX, top: toY(last.atl) - 6, fontSize: 9, color: '#9ca3af', fontWeight: '800' }}>{last.atl}</Text>
-                          <View style={{ position: 'absolute', left: endX - 7, top: toY(last.atl) - 3, width: 6, height: 6, borderRadius: 3, backgroundColor: '#9ca3af', borderWidth: 1.5, borderColor: '#fff' }} />
-                        </>
-                      );
-                    })()}
+                    {/* Current values at end of lines — only when no touch active */}
 
                     {/* X-axis month labels — evenly spaced, no overlap */}
                     <View style={{ position: 'absolute', top: FF_CHART_H + 6, left: FF_CHART_PAD_L, right: FF_CHART_PAD_R }}>
@@ -1404,21 +1393,23 @@ export default function ProgressiScreen() {
                 );
               })()}
 
-              {/* Legend — 3 items now */}
-              <View style={{ flexDirection: 'row', justifyContent: 'center', gap: SPACING.lg, marginTop: SPACING.sm }}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-                  <View style={{ width: 14, height: 3, borderRadius: 1.5, backgroundColor: '#f97316' }} />
-                  <Text style={{ fontSize: 9, color: COLORS.textMuted }}>Condizione fisica</Text>
+              {/* Legend — 3 items, tap to dismiss tooltip */}
+              <TouchableOpacity activeOpacity={1} onPress={() => setFfTouchIdx(null)}>
+                <View style={{ flexDirection: 'row', justifyContent: 'center', gap: SPACING.lg, marginTop: SPACING.sm }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                    <View style={{ width: 14, height: 3, borderRadius: 1.5, backgroundColor: '#f97316' }} />
+                    <Text style={{ fontSize: 9, color: COLORS.textMuted }}>Condizione fisica</Text>
+                  </View>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                    <View style={{ width: 14, height: 3, borderRadius: 1.5, backgroundColor: '#9ca3af' }} />
+                    <Text style={{ fontSize: 9, color: COLORS.textMuted }}>Affaticamento</Text>
+                  </View>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                    <View style={{ width: 14, height: 3, borderRadius: 1.5, backgroundColor: '#22c55e' }} />
+                    <Text style={{ fontSize: 9, color: COLORS.textMuted }}>Forma fisica</Text>
+                  </View>
                 </View>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-                  <View style={{ width: 14, height: 3, borderRadius: 1.5, backgroundColor: '#9ca3af' }} />
-                  <Text style={{ fontSize: 9, color: COLORS.textMuted }}>Affaticamento</Text>
-                </View>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-                  <View style={{ width: 14, height: 3, borderRadius: 1.5, backgroundColor: '#22c55e' }} />
-                  <Text style={{ fontSize: 9, color: COLORS.textMuted }}>Forma fisica</Text>
-                </View>
-              </View>
+              </TouchableOpacity>
 
               {/* Simple interpretation — no jargon */}
               <View style={{ marginTop: SPACING.md, backgroundColor: COLORS.bg, borderRadius: BORDER_RADIUS.sm, padding: SPACING.sm }}>
