@@ -40,6 +40,7 @@ Progettata per un runner in fase di ritorno post-infortunio con obiettivo tempo 
 | react-native-reanimated | 4.x | Animazioni |
 | react-native-gesture-handler | 2.x | Gesture recognition |
 | expo-blur | - | Effetti blur |
+| react-native-svg | 15.x | Grafici SVG (HR chart, F&F) |
 
 ### Backend
 | Tecnologia | Versione | Ruolo |
@@ -238,7 +239,6 @@ Impellizzeri et al. (2020) hanno dimostrato che il mathematical coupling (il car
 
 ### 1. 🏠 Dashboard (Home)
 La schermata principale con panoramica completa:
-- **Frase motivazionale**: "Tutti vogliono andare in paradiso ma nessuno è disposto a morire per arrivarci"
 - **Countdown gara**: giorni/ore/minuti alla Mezza Maratona di Fuerteventura
 - **Card sessione di oggi**: tipo, titolo, descrizione, distanza/passo/durata target
 - **Bottone "SEGNA FATTO"**: completa la sessione di oggi con un tap
@@ -332,6 +332,7 @@ Analisi completa di una corsa:
 - **Rilevamento ripetute**: banner automatico quando la variabilità del passo è alta (CV >15%)
 - **Cadenza e dislivello**: dati da Strava
 - **Supercompensazione**: tipo adattamento (neuromuscolare/metabolico/strutturale), barra maturazione, data beneficio massimo
+- **Grafico Frequenza Cardiaca** (stile Strava): area rossa HR stream nel tempo, linea media bianca, asse X con tempo, asse Y con bpm. Mostra drift cardiaco a colpo d'occhio. Dati scaricati da Strava Streams API (downsampled a 200 punti).
 - **Analisi AI** (Claude 4 Haiku primario, Gemini fallback):
   - 9 sezioni strutturate: intro, dati corsa, classificazione, utilità per obiettivo, positivi, lacune, reality check con tempi stimati, consigli tecnici, voto/10
   - Persona "Renato Canova", risposte sempre uniche (temperature 0.9)
