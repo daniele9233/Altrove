@@ -103,9 +103,11 @@ CORRALEJO-2026/
 │   │   ├── periodizzazione.tsx# Grafico periodizzazione
 │   │   ├── progressi.tsx      # Storico VO2max/soglia/previsioni
 │   │   ├── calcolatore.tsx    # Calcolatore passi e previsioni
-│   │   ├── injury-risk.tsx    # Injury Risk Score (analisi predittiva)
+│   │   ├── injury-risk.tsx    # Recovery & Risk (Recovery Score + Injury Risk)
 │   │   ├── badges.tsx         # Badge e Trofei (100+ badge, 8 categorie + Passerotto leggendario)
 │   │   ├── supercompensazione.tsx # Supercompensazione: curva, grafico futuro, maturazione, golden day, ROI
+│   │   ├── heatmap.tsx        # DNA della Corsa (Heatmap Genetico annuale)
+│   │   ├── weekly-report.tsx  # Weekly Report con analisi AI
 │   │   └── strava-callback.tsx# OAuth callback Strava
 │   ├── src/
 │   │   ├── api.ts             # Client API (tutte le chiamate)
@@ -433,11 +435,27 @@ Gestione OAuth Strava:
 - Confronto con sessione pianificata, VDOT, settimane alla gara
 - Funziona anche per corse extra fuori dal piano
 
-### 4b. Injury Risk Score Avanzato
-- Analisi predittiva del rischio infortunio con **7 fattori** ponderati
-- Fattori classici: carico settimanale, incremento WoW, intensità media, giorni recupero, aderenza piano
-- **Foster Monotony** (Foster 1998): media/stdev carichi 7 giorni, alert se >2.0
-- **ACSM 10% Rule**: incremento volume settimanale max 10%, alert se superato
+### 4b. Recovery & Risk (Recovery Score + Injury Risk)
+Pagina unificata con 2 tab:
+
+#### Tab Recovery — Recovery Score (Opzione B: soggettivo + oggettivo)
+- **Score 0-100** con cerchio grande, emoji, stato (Pronto/Buono/Parziale/Stanco/Riposa)
+- **4 fattori oggettivi** (dai dati corse):
+  - Ore dall'ultimo allenamento
+  - Carico 3gg vs media 21gg
+  - TSB (Forma Fisica dal Banister)
+  - Intensità ultimo allenamento (HR%)
+- **Check-in mattutino** (modal con 4 input, 30 secondi):
+  - ⚡ Energia (1-5)
+  - 😴 Qualità sonno (1-5)
+  - 💪 Dolori muscolari (1-5)
+  - 🧠 Umore (1-5)
+- **Calcolo**: senza check-in → 100% oggettivo; con check-in → 40% oggettivo + 60% soggettivo
+- **Suggerimento allenamento** basato sullo score
+- **Storico check-in** con barre colorate (ultimi 7 giorni)
+
+#### Tab Injury Risk — Analisi Predittiva Infortunio
+- **7 fattori** ponderati: ACWR, incremento WoW, storico infortuni, intensità, recupero, Foster Monotony, ACSM 10%
 - Pesi: [0.25, 0.15, 0.15, 0.10, 0.10, 0.15, 0.10]
 - Gauge visuale con score 0-100 e codice colore (verde/giallo/arancione/rosso)
 - Grafico storico carico settimanale con evidenziazione spike
@@ -508,6 +526,34 @@ Pagina dedicata basata sul modello Fitness-Fatigue (impulso-risposta). I cambiam
 ### 4e. Calcolatore
 - Passi da VDOT: mostra VDOT corrente e i 5 passi di Daniels
 - Convertitore passo/velocità: min:sec/km ↔ km/h
+
+### 4g. DNA della Corsa (Heatmap Genetico)
+- **Griglia 52×7** (settimane × giorni), scroll orizzontale con auto-scroll a settimana corrente
+- **Colore celle** basato su TRIMP giornaliero (5 livelli):
+  - Scuro (riposo) → Blu (basso) → Verde (medio) → Giallo/Arancione (alto) → Rosso (molto alto)
+- **Bordo celle** = zona HR (blu/verde/arancione/rosso)
+- **Dimensione celle** variabile con km corsi (12-18px)
+- **Touch cella** → popup con data, km, passo, FC, TRIMP
+- **Long-press settimana** → riepilogo settimanale (km, corse, TRIMP totale)
+- **Mutazione positiva**: mesi con +20% km rispetto al precedente → bordo dorato sulle celle
+- **Streak**: giorni consecutivi di corsa con effetto glow
+- **4 stat box**: km totali anno, corse totali, streak attuale, streak massimo
+- **Barre mensili** in basso con km e n° corse
+- Accessibile da Profilo → card "DNA della Corsa"
+
+### 4h. Weekly Report AI
+- Report settimanale con **analisi AI personalizzata** (Claude 4 Haiku)
+- **2 anelli progresso**: KM target (%) e Aderenza piano (%)
+- **4 stat card**: km, corse, passo medio, FC media
+- **VDOT** con trend rispetto alla settimana precedente
+- **Trend volume**: grafico a barre delle ultime 5 settimane
+- **Dettaglio corse**: lista corse della settimana con giorno, km, passo, FC
+- **Analisi AI Coach**: 5 sezioni (verdetto, positivi, miglioramenti, focus prossima settimana, consiglio)
+- **Preview prossima settimana**: fase, km target, sessioni pianificate
+- **Storico report**: ultime 6 settimane con km e % target
+- **Countdown gara**: badge con giorni rimanenti
+- Invio automatico ogni Domenica 20:00 UTC via push notification
+- Accessibile da Profilo → card "Weekly Report"
 
 ### 5. Sistema Medaglie a 6 Livelli
 Per ogni distanza (5km, 10km, 15km, 21.1km):
@@ -593,10 +639,28 @@ Base URL: `https://corralejo-backend.onrender.com/api`
 | GET | `/decoupling-history` | Storico decoupling cardiaco settimanale (solo corse steady, CV<10%) |
 | GET | `/badges` | 100+ badge gamification con progresso, stato unlock, categorie |
 
+### Recovery Score
+| Metodo | Endpoint | Descrizione |
+|---|---|---|
+| GET | `/recovery-score` | Recovery Score: 4 fattori oggettivi + soggettivi da check-in |
+| POST | `/recovery-checkin` | Salva check-in mattutino (energia, sonno, dolori, umore) |
+
+### Heatmap
+| Metodo | Endpoint | Descrizione |
+|---|---|---|
+| GET | `/heatmap` | DNA della Corsa: TRIMP giornaliero, streak, totali mensili/annuali |
+
+### Weekly Report
+| Metodo | Endpoint | Descrizione |
+|---|---|---|
+| GET | `/weekly-report` | Report settimanale con dati + analisi AI Claude |
+| POST | `/weekly-report/send` | Invia report via push notification |
+
 ### AI
 | Metodo | Endpoint | Descrizione |
 |---|---|---|
 | POST | `/ai/analyze-run` | Analisi AI (Claude 4 Haiku → Gemini → fallback algoritmico) |
+| POST | `/ai/clear-old-analyses` | Elimina analisi non-Claude per rigenerazione |
 
 ### Supercompensazione
 | Metodo | Endpoint | Descrizione |

@@ -190,6 +190,7 @@ export default function RootLayout() {
         <Stack.Screen name="calcolatore" />
         <Stack.Screen name="injury-risk" />
         <Stack.Screen name="heatmap" />
+        <Stack.Screen name="weekly-report" />
         <Stack.Screen
           name="add-test"
           options={{

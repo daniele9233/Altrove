@@ -350,6 +350,27 @@ export default function ProfiloScreen() {
               <Ionicons name="chevron-forward" size={20} color="#3b82f6" />
             </TouchableOpacity>
 
+            {/* Weekly Report */}
+            <TouchableOpacity
+              onPress={() => router.push('/weekly-report')}
+              style={{
+                flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+                backgroundColor: '#8b5cf610', borderRadius: BORDER_RADIUS.md,
+                padding: SPACING.lg, marginBottom: SPACING.lg,
+                borderWidth: 1, borderColor: '#8b5cf640',
+              }}
+              activeOpacity={0.7}
+            >
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: SPACING.md }}>
+                <Text style={{ fontSize: 28 }}>📊</Text>
+                <View>
+                  <Text style={{ fontSize: FONT_SIZES.body, fontWeight: '900', color: COLORS.text }}>Weekly Report</Text>
+                  <Text style={{ fontSize: FONT_SIZES.xs, color: COLORS.textMuted }}>Report settimanale con analisi AI</Text>
+                </View>
+              </View>
+              <Ionicons name="chevron-forward" size={20} color="#8b5cf6" />
+            </TouchableOpacity>
+
             <Text style={styles.introText}>Sistema medaglie a 6 livelli: Warm-up, Bronzo, Argento, Oro, Platino, Elite</Text>
             {Object.entries(medals).map(([dist, medal]: [string, any]) => {
               const status = medal.status || 'locked';

@@ -1881,6 +1881,89 @@ async def generate_weekly_report() -> dict:
     race_date = date(2026, 12, 12)
     days_to_race = (race_date - today).days
 
+    # ── Run details for the week ──
+    run_details = []
+    for r in runs:
+        run_details.append({
+            "date": r.get("date", ""),
+            "distance_km": round(r.get("distance_km", 0), 1),
+            "avg_pace": r.get("avg_pace", ""),
+            "avg_hr": r.get("avg_hr"),
+            "run_type": r.get("run_type", ""),
+            "duration_minutes": round(r.get("duration_minutes", 0), 1),
+        })
+
+    # ── Previous weeks for trend ──
+    prev_weeks_data = []
+    for w_offset in range(1, 5):
+        pw_start = last_monday - timedelta(days=7 * w_offset)
+        pw_end = pw_start + timedelta(days=6)
+        pw_runs = await db.runs.find(
+            {"date": {"$gte": pw_start.isoformat(), "$lte": pw_end.isoformat()}},
+            {"_id": 0, "distance_km": 1}
+        ).to_list(50)
+        pw_km = round(sum(r.get("distance_km", 0) for r in pw_runs), 1)
+        prev_weeks_data.append({"week_start": pw_start.isoformat(), "km": pw_km, "runs": len(pw_runs)})
+
+    # ── AI Coach weekly analysis (Claude) ──
+    ai_analysis = ""
+    try:
+        if ANTHROPIC_API_KEY and runs:
+            ai_prompt = f"""Sei un coach di corsa esperto. Analizza la settimana di allenamento in modo UNICO e personalizzato.
+Parla in italiano, tono motivazionale ma onesto. Usa emoji. Max 200 parole.
+
+DATI SETTIMANA:
+- KM fatti: {actual_km}/{target_km} ({km_pct}%)
+- Corse: {actual_runs_count}
+- Passo medio: {avg_pace_str or 'N/D'}
+- FC media: {avg_hr or 'N/D'} bpm
+- VDOT: {current_vdot or 'N/D'} (cambio: {vdot_change or 'nessuno'})
+- Fase: {phase}
+- Aderenza piano: {adherence_pct}%
+- Settimane alla gara: {days_to_race // 7}
+
+CORSE DELLA SETTIMANA:
+{chr(10).join(f"- {r['date']}: {r['distance_km']}km a {r['avg_pace']} FC {r['avg_hr'] or 'N/D'}" for r in run_details)}
+
+TREND 4 SETTIMANE PRECEDENTI:
+{chr(10).join(f"- {pw['week_start']}: {pw['km']}km ({pw['runs']} corse)" for pw in prev_weeks_data)}
+
+STRUTTURA RISPOSTA:
+1. 📊 Verdetto (1 frase secca: positivo/negativo/neutro)
+2. ✅ Cosa hai fatto bene (2 punti)
+3. ⚠️ Cosa migliorare (1-2 punti)
+4. 🎯 Focus settimana prossima ({next_week_phase}, {next_week_km}km)
+5. 💡 Consiglio specifico basato sui dati
+
+NON ripetere i dati numerici, commentali. Sii specifico e diretto."""
+
+            async with httpx.AsyncClient(timeout=30) as http_ai:
+                resp = await http_ai.post(
+                    "https://api.anthropic.com/v1/messages",
+                    headers={
+                        "x-api-key": ANTHROPIC_API_KEY,
+                        "anthropic-version": "2023-06-01",
+                        "content-type": "application/json",
+                    },
+                    json={
+                        "model": "claude-haiku-4-5-20251001",
+                        "max_tokens": 800,
+                        "temperature": 0.9,
+                        "messages": [{"role": "user", "content": ai_prompt}],
+                    }
+                )
+                if resp.status_code == 200:
+                    blocks = resp.json().get("content", [])
+                    if blocks:
+                        ai_analysis = blocks[0].get("text", "")
+    except Exception as e:
+        logger.warning(f"Weekly report AI analysis failed: {e}")
+
+    # ── Report history (last 8 weeks) ──
+    report_history = await db.weekly_reports.find(
+        {}, {"_id": 0}
+    ).sort("date", -1).to_list(8)
+
     return {
         "week_number": week_num,
         "phase": phase,
@@ -1899,6 +1982,10 @@ async def generate_weekly_report() -> dict:
         "next_week_phase": next_week_phase,
         "next_week_sessions": next_week_sessions,
         "days_to_race": days_to_race,
+        "run_details": run_details,
+        "prev_weeks": prev_weeks_data,
+        "ai_analysis": ai_analysis,
+        "report_history": report_history,
     }
 
 
