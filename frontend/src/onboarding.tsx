@@ -41,6 +41,12 @@ export default function OnboardingScreen({ onComplete }: OnboardingProps) {
   const [raceDate, setRaceDate] = useState('');
   const [targetTime, setTargetTime] = useState('');
   const [targetPace, setTargetPace] = useState('');
+  const [showDatePicker, setShowDatePicker] = useState(false);
+  const [showTimePicker, setShowTimePicker] = useState(false);
+  const [showPacePicker, setShowPacePicker] = useState(false);
+  const [dateYear, setDateYear] = useState('2026');
+  const [dateMonth, setDateMonth] = useState('06');
+  const [dateDay, setDateDay] = useState('15');
 
   // Step 4: Livello
   const [level, setLevel] = useState('');
@@ -274,39 +280,126 @@ export default function OnboardingScreen({ onComplete }: OnboardingProps) {
 
       {raceGoal ? (
         <>
+          {/* DATA GARA — Selettore anno/mese/giorno */}
           <View style={styles.inputGroup}>
-            <Text style={styles.inputLabel}>DATA GARA (AAAA-MM-GG)</Text>
-            <TextInput
-              style={styles.input}
-              value={raceDate}
-              onChangeText={setRaceDate}
-              placeholder="2026-12-01"
-              placeholderTextColor={COLORS.textMuted}
-            />
+            <Text style={styles.inputLabel}>DATA GARA</Text>
+            <TouchableOpacity
+              style={[styles.input, { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }]}
+              onPress={() => { setShowDatePicker(!showDatePicker); setShowTimePicker(false); setShowPacePicker(false); }}
+            >
+              <Text style={{ color: raceDate ? COLORS.text : COLORS.textMuted, fontSize: FONT_SIZES.lg }}>
+                {raceDate || 'Seleziona data'}
+              </Text>
+              <Ionicons name="calendar" size={18} color={COLORS.textMuted} />
+            </TouchableOpacity>
+            {showDatePicker && (
+              <View style={{ backgroundColor: COLORS.card, borderRadius: BORDER_RADIUS.md, borderWidth: 1, borderColor: COLORS.cardBorder, padding: SPACING.md, marginTop: SPACING.xs }}>
+                <View style={{ flexDirection: 'row', gap: SPACING.sm }}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ color: COLORS.textMuted, fontSize: FONT_SIZES.xs, marginBottom: 4, textAlign: 'center', fontWeight: '700' }}>ANNO</Text>
+                    <ScrollView style={{ maxHeight: 130 }} nestedScrollEnabled showsVerticalScrollIndicator={false}>
+                      {['2025', '2026', '2027', '2028', '2029', '2030'].map(y => (
+                        <TouchableOpacity key={y} onPress={() => setDateYear(y)}
+                          style={{ paddingVertical: 8, alignItems: 'center', backgroundColor: dateYear === y ? COLORS.lime + '20' : 'transparent', borderRadius: 8 }}>
+                          <Text style={{ color: dateYear === y ? COLORS.lime : COLORS.text, fontWeight: dateYear === y ? '700' : '400', fontSize: FONT_SIZES.body }}>{y}</Text>
+                        </TouchableOpacity>
+                      ))}
+                    </ScrollView>
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ color: COLORS.textMuted, fontSize: FONT_SIZES.xs, marginBottom: 4, textAlign: 'center', fontWeight: '700' }}>MESE</Text>
+                    <ScrollView style={{ maxHeight: 130 }} nestedScrollEnabled showsVerticalScrollIndicator={false}>
+                      {[{k:'01',l:'Gen'},{k:'02',l:'Feb'},{k:'03',l:'Mar'},{k:'04',l:'Apr'},{k:'05',l:'Mag'},{k:'06',l:'Giu'},{k:'07',l:'Lug'},{k:'08',l:'Ago'},{k:'09',l:'Set'},{k:'10',l:'Ott'},{k:'11',l:'Nov'},{k:'12',l:'Dic'}].map(m => (
+                        <TouchableOpacity key={m.k} onPress={() => setDateMonth(m.k)}
+                          style={{ paddingVertical: 8, alignItems: 'center', backgroundColor: dateMonth === m.k ? COLORS.lime + '20' : 'transparent', borderRadius: 8 }}>
+                          <Text style={{ color: dateMonth === m.k ? COLORS.lime : COLORS.text, fontWeight: dateMonth === m.k ? '700' : '400', fontSize: FONT_SIZES.body }}>{m.l}</Text>
+                        </TouchableOpacity>
+                      ))}
+                    </ScrollView>
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ color: COLORS.textMuted, fontSize: FONT_SIZES.xs, marginBottom: 4, textAlign: 'center', fontWeight: '700' }}>GIORNO</Text>
+                    <ScrollView style={{ maxHeight: 130 }} nestedScrollEnabled showsVerticalScrollIndicator={false}>
+                      {Array.from({length: 31}, (_, i) => String(i+1).padStart(2, '0')).map(d => (
+                        <TouchableOpacity key={d} onPress={() => setDateDay(d)}
+                          style={{ paddingVertical: 8, alignItems: 'center', backgroundColor: dateDay === d ? COLORS.lime + '20' : 'transparent', borderRadius: 8 }}>
+                          <Text style={{ color: dateDay === d ? COLORS.lime : COLORS.text, fontWeight: dateDay === d ? '700' : '400', fontSize: FONT_SIZES.body }}>{d}</Text>
+                        </TouchableOpacity>
+                      ))}
+                    </ScrollView>
+                  </View>
+                </View>
+                <TouchableOpacity
+                  onPress={() => { setRaceDate(`${dateYear}-${dateMonth}-${dateDay}`); setShowDatePicker(false); }}
+                  style={{ marginTop: SPACING.md, backgroundColor: COLORS.lime, borderRadius: BORDER_RADIUS.full, paddingVertical: SPACING.sm + 2, alignItems: 'center' }}
+                >
+                  <Text style={{ color: COLORS.limeDark, fontWeight: '800', fontSize: FONT_SIZES.sm }}>CONFERMA DATA</Text>
+                </TouchableOpacity>
+              </View>
+            )}
           </View>
 
-          <View style={styles.inputRow}>
-            <View style={[styles.inputGroup, { flex: 1 }]}>
-              <Text style={styles.inputLabel}>TEMPO TARGET</Text>
-              <TextInput
-                style={styles.input}
-                value={targetTime}
-                onChangeText={setTargetTime}
-                placeholder="1:35:00"
-                placeholderTextColor={COLORS.textMuted}
-              />
-            </View>
-            <View style={{ width: SPACING.lg }} />
-            <View style={[styles.inputGroup, { flex: 1 }]}>
-              <Text style={styles.inputLabel}>PASSO TARGET</Text>
-              <TextInput
-                style={styles.input}
-                value={targetPace}
-                onChangeText={setTargetPace}
-                placeholder="4:30"
-                placeholderTextColor={COLORS.textMuted}
-              />
-            </View>
+          {/* TEMPO TARGET — Dropdown */}
+          <View style={styles.inputGroup}>
+            <Text style={styles.inputLabel}>TEMPO TARGET</Text>
+            <TouchableOpacity
+              style={[styles.input, { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }]}
+              onPress={() => { setShowTimePicker(!showTimePicker); setShowDatePicker(false); setShowPacePicker(false); }}
+            >
+              <Text style={{ color: targetTime ? COLORS.text : COLORS.textMuted, fontSize: FONT_SIZES.lg }}>
+                {targetTime || 'Seleziona tempo'}
+              </Text>
+              <Ionicons name={showTimePicker ? 'chevron-up' : 'chevron-down'} size={16} color={COLORS.textMuted} />
+            </TouchableOpacity>
+            {showTimePicker && (
+              <View style={{ backgroundColor: COLORS.card, borderRadius: BORDER_RADIUS.md, borderWidth: 1, borderColor: COLORS.cardBorder, overflow: 'hidden', marginTop: SPACING.xs }}>
+                <ScrollView style={{ maxHeight: 200 }} nestedScrollEnabled showsVerticalScrollIndicator={false}>
+                  {(raceGoal === '5km' ? ['0:17:00','0:18:00','0:19:00','0:20:00','0:21:00','0:22:00','0:23:00','0:24:00','0:25:00','0:27:00','0:30:00','0:32:00','0:35:00','0:38:00','0:40:00'] :
+                    raceGoal === '10km' ? ['0:35:00','0:37:00','0:38:00','0:40:00','0:42:00','0:45:00','0:47:00','0:50:00','0:52:00','0:55:00','0:58:00','1:00:00','1:05:00','1:10:00'] :
+                    raceGoal === 'Mezza Maratona' ? ['1:15:00','1:20:00','1:25:00','1:28:00','1:30:00','1:32:00','1:35:00','1:38:00','1:40:00','1:45:00','1:50:00','1:55:00','2:00:00','2:10:00','2:20:00','2:30:00'] :
+                    raceGoal === 'Maratona' ? ['2:45:00','2:50:00','2:55:00','3:00:00','3:05:00','3:10:00','3:15:00','3:20:00','3:30:00','3:40:00','3:45:00','3:50:00','4:00:00','4:15:00','4:30:00','4:45:00','5:00:00'] :
+                    ['0:20:00','0:30:00','0:40:00','0:50:00','1:00:00','1:15:00','1:30:00','1:45:00','2:00:00','2:30:00','3:00:00','3:30:00','4:00:00','5:00:00']
+                  ).map(t => (
+                    <TouchableOpacity
+                      key={t}
+                      onPress={() => { setTargetTime(t); setShowTimePicker(false); }}
+                      style={{ paddingVertical: SPACING.md, paddingHorizontal: SPACING.lg, backgroundColor: targetTime === t ? COLORS.lime + '20' : 'transparent', borderBottomWidth: 1, borderBottomColor: COLORS.cardBorder }}
+                    >
+                      <Text style={{ color: targetTime === t ? COLORS.lime : COLORS.text, fontSize: FONT_SIZES.lg, fontWeight: targetTime === t ? '700' : '400' }}>{t}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </ScrollView>
+              </View>
+            )}
+          </View>
+
+          {/* PASSO TARGET — Dropdown */}
+          <View style={styles.inputGroup}>
+            <Text style={styles.inputLabel}>PASSO TARGET (/KM)</Text>
+            <TouchableOpacity
+              style={[styles.input, { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }]}
+              onPress={() => { setShowPacePicker(!showPacePicker); setShowDatePicker(false); setShowTimePicker(false); }}
+            >
+              <Text style={{ color: targetPace ? COLORS.text : COLORS.textMuted, fontSize: FONT_SIZES.lg }}>
+                {targetPace ? `${targetPace}/km` : 'Seleziona passo'}
+              </Text>
+              <Ionicons name={showPacePicker ? 'chevron-up' : 'chevron-down'} size={16} color={COLORS.textMuted} />
+            </TouchableOpacity>
+            {showPacePicker && (
+              <View style={{ backgroundColor: COLORS.card, borderRadius: BORDER_RADIUS.md, borderWidth: 1, borderColor: COLORS.cardBorder, overflow: 'hidden', marginTop: SPACING.xs }}>
+                <ScrollView style={{ maxHeight: 200 }} nestedScrollEnabled showsVerticalScrollIndicator={false}>
+                  {['3:30','3:40','3:45','3:50','4:00','4:05','4:10','4:15','4:20','4:25','4:30','4:35','4:40','4:45','4:50','5:00','5:10','5:20','5:30','5:40','5:50','6:00','6:15','6:30','6:45','7:00','7:30','8:00'].map(p => (
+                    <TouchableOpacity
+                      key={p}
+                      onPress={() => { setTargetPace(p); setShowPacePicker(false); }}
+                      style={{ paddingVertical: SPACING.md, paddingHorizontal: SPACING.lg, backgroundColor: targetPace === p ? COLORS.lime + '20' : 'transparent', borderBottomWidth: 1, borderBottomColor: COLORS.cardBorder }}
+                    >
+                      <Text style={{ color: targetPace === p ? COLORS.lime : COLORS.text, fontSize: FONT_SIZES.lg, fontWeight: targetPace === p ? '700' : '400' }}>{p}/km</Text>
+                    </TouchableOpacity>
+                  ))}
+                </ScrollView>
+              </View>
+            )}
           </View>
         </>
       ) : (
