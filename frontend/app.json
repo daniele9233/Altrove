@@ -10,7 +10,7 @@
     "newArchEnabled": true,
     "runtimeVersion": "1.0.0",
     "updates": {
-      "url": "https://u.expo.dev/1930258d-7039-4076-8718-348195e2000f",
+      "url": "https://u.expo.dev/01c883bc-f9cd-4542-af7f-c74bb8ded7ae",
       "enabled": true,
       "checkAutomatically": "ON_LOAD",
       "fallbackToCacheTimeout": 5000
@@ -48,10 +48,10 @@
     },
     "extra": {
       "eas": {
-        "projectId": "1930258d-7039-4076-8718-348195e2000f"
+        "projectId": "01c883bc-f9cd-4542-af7f-c74bb8ded7ae"
       },
       "router": {}
     },
-    "owner": "massiminovanni"
+    "owner": "valerioandreiani"
   }
 }
