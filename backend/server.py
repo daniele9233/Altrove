@@ -2401,6 +2401,20 @@ async def _get_analytics_impl():
                 zone_counts["Z4"] += 1
             else:
                 zone_counts["Z5"] += 1
+        else:
+            # Fallback: estimate zone from pace when no HR data
+            pace_s = pace_str_to_secs(r.get("avg_pace", "9:99"))
+            total_hr_runs += 1
+            if pace_s >= 390:       # >= 6:30/km → recovery
+                zone_counts["Z1"] += 1
+            elif pace_s >= 330:     # >= 5:30/km → aerobic
+                zone_counts["Z2"] += 1
+            elif pace_s >= 290:     # >= 4:50/km → tempo
+                zone_counts["Z3"] += 1
+            elif pace_s >= 250:     # >= 4:10/km → threshold
+                zone_counts["Z4"] += 1
+            else:                   # < 4:10/km → VO2max
+                zone_counts["Z5"] += 1
 
     zone_distribution = []
     for zdef in zone_definitions:
@@ -2418,24 +2432,37 @@ async def _get_analytics_impl():
 
     # ---- HR ZONE DISTRIBUTION (last 4 weeks, Seiler 2010) ----
     four_weeks_ago_date = (date.today() - timedelta(days=28)).isoformat()
-    recent_hr_runs = [r for r in valid_runs if r.get("avg_hr") and r.get("date", "") >= four_weeks_ago_date]
+    recent_runs_4w = [r for r in valid_runs if r.get("date", "") >= four_weeks_ago_date]
 
     hr_zone_counts_4w = {"z1": 0, "z2": 0, "z3": 0, "z4": 0, "z5": 0}
-    for r in recent_hr_runs:
-        avg_hr = r["avg_hr"]
-        # Use dynamic BPM thresholds based on user's max HR
-        if avg_hr <= z1_max:
-            hr_zone_counts_4w["z1"] += 1
-        elif avg_hr <= z2_max:
-            hr_zone_counts_4w["z2"] += 1
-        elif avg_hr <= z3_max:
-            hr_zone_counts_4w["z3"] += 1
-        elif avg_hr <= z4_max:
-            hr_zone_counts_4w["z4"] += 1
+    for r in recent_runs_4w:
+        avg_hr = r.get("avg_hr")
+        if avg_hr:
+            if avg_hr <= z1_max:
+                hr_zone_counts_4w["z1"] += 1
+            elif avg_hr <= z2_max:
+                hr_zone_counts_4w["z2"] += 1
+            elif avg_hr <= z3_max:
+                hr_zone_counts_4w["z3"] += 1
+            elif avg_hr <= z4_max:
+                hr_zone_counts_4w["z4"] += 1
+            else:
+                hr_zone_counts_4w["z5"] += 1
         else:
-            hr_zone_counts_4w["z5"] += 1
+            # Fallback: estimate from pace
+            pace_s = pace_str_to_secs(r.get("avg_pace", "9:99"))
+            if pace_s >= 390:
+                hr_zone_counts_4w["z1"] += 1
+            elif pace_s >= 330:
+                hr_zone_counts_4w["z2"] += 1
+            elif pace_s >= 290:
+                hr_zone_counts_4w["z3"] += 1
+            elif pace_s >= 250:
+                hr_zone_counts_4w["z4"] += 1
+            else:
+                hr_zone_counts_4w["z5"] += 1
 
-    total_4w_hr = len(recent_hr_runs)
+    total_4w_hr = len(recent_runs_4w)
     hr_zone_distribution = {
         "z1_pct": round((hr_zone_counts_4w["z1"] / max(total_4w_hr, 1)) * 100),
         "z2_pct": round((hr_zone_counts_4w["z2"] / max(total_4w_hr, 1)) * 100),
@@ -2457,18 +2484,29 @@ async def _get_analytics_impl():
     if pre_injury_at is None:
         pre_injury_at = {"hr": None, "pace": None, "date": None, "note": None}
     
-    # Current AT from tempo/threshold runs (fastest runs with HR data > 20min, post-injury 2026+)
-    threshold_runs = [r for r in valid_runs if r.get("avg_hr") and r.get("duration_minutes", 0) > 20 and pace_str_to_secs(r.get("avg_pace", "9:99")) < 360]
+    # Current AT from tempo/threshold runs (fastest runs with HR data > 20min)
+    threshold_runs_hr = [r for r in valid_runs if r.get("avg_hr") and r.get("duration_minutes", 0) > 20 and pace_str_to_secs(r.get("avg_pace", "9:99")) < 360]
     at_hr = None
     at_pace = None
-    if threshold_runs:
-        sorted_by_pace = sorted(threshold_runs, key=lambda r: pace_str_to_secs(r.get("avg_pace", "9:99")))
+    if threshold_runs_hr:
+        sorted_by_pace = sorted(threshold_runs_hr, key=lambda r: pace_str_to_secs(r.get("avg_pace", "9:99")))
         top_efforts = sorted_by_pace[:5]
         at_hr = round(sum(r["avg_hr"] for r in top_efforts) / len(top_efforts))
         avg_pace_s = sum(pace_str_to_secs(r["avg_pace"]) for r in top_efforts) / len(top_efforts)
         at_pace = f"{int(avg_pace_s // 60)}:{int(avg_pace_s % 60):02d}"
-    
-    current_at = {"hr": at_hr, "pace": at_pace} if at_hr else None
+
+    # Fallback: if no HR data, estimate AT from pace-only (fastest sustained runs > 20 min)
+    if not at_hr:
+        sustained_runs = [r for r in valid_runs if r.get("duration_minutes", 0) > 20 and pace_str_to_secs(r.get("avg_pace", "9:99")) < 480]
+        if sustained_runs:
+            sorted_by_pace = sorted(sustained_runs, key=lambda r: pace_str_to_secs(r.get("avg_pace", "9:99")))
+            top_efforts = sorted_by_pace[:5]
+            avg_pace_s = sum(pace_str_to_secs(r["avg_pace"]) for r in top_efforts) / len(top_efforts)
+            at_pace = f"{int(avg_pace_s // 60)}:{int(avg_pace_s % 60):02d}"
+            # Estimate AT HR from ~85% of max HR
+            at_hr = round(max_hr * 0.85)
+
+    current_at = {"hr": at_hr, "pace": at_pace} if at_pace else None
 
     # ---- ANAEROBIC THRESHOLD HISTORY (every 15 days) ----
     # Track: for runs at similar HR (~150bpm), what pace can you maintain?
@@ -2498,27 +2536,36 @@ async def _get_analytics_impl():
         period_end = current_period_start + timedelta(days=period_days - 1)
         period_start_str = current_period_start.isoformat()
         period_end_str = period_end.isoformat()
-        
-        # Get runs in this period with HR in target range (140-160 bpm)
+
+        # Try HR-based filtering first
         period_runs = [
-            r for r in valid_runs 
-            if r.get("avg_hr") 
+            r for r in valid_runs
+            if r.get("avg_hr")
             and target_hr_range[0] <= r.get("avg_hr", 0) <= target_hr_range[1]
-            and r.get("duration_minutes", 0) > 15 
+            and r.get("duration_minutes", 0) > 15
             and period_start_str <= r.get("date", "") <= period_end_str
         ]
-        
+
+        # Fallback: if no HR-matched runs, use sustained runs (>15 min, pace < 8:00/km) in this period
+        if not period_runs:
+            period_runs = [
+                r for r in valid_runs
+                if r.get("duration_minutes", 0) > 15
+                and pace_str_to_secs(r.get("avg_pace", "9:99")) < 480
+                and period_start_str <= r.get("date", "") <= period_end_str
+            ]
+
         if period_runs:
-            # Average pace at similar HR effort
-            avg_hr = round(sum(r["avg_hr"] for r in period_runs) / len(period_runs))
+            # Average pace at similar effort
+            hr_values = [r["avg_hr"] for r in period_runs if r.get("avg_hr")]
+            avg_hr = round(sum(hr_values) / len(hr_values)) if hr_values else round(max_hr * 0.83)
             pace_secs_list = [pace_str_to_secs(r["avg_pace"]) for r in period_runs]
             avg_pace_secs = sum(pace_secs_list) / len(pace_secs_list)
             avg_pace = f"{int(avg_pace_secs // 60)}:{int(avg_pace_secs % 60):02d}"
-            
-            # Find best pace in period at this HR
+
             best_pace_secs = min(pace_secs_list)
             best_pace = f"{int(best_pace_secs // 60)}:{int(best_pace_secs % 60):02d}"
-            
+
             at_history.append({
                 "period_start": period_start_str,
                 "period_end": period_end_str,
@@ -2529,7 +2576,7 @@ async def _get_analytics_impl():
                 "runs_count": len(period_runs),
                 "label": f"{current_period_start.strftime('%d %b')}"
             })
-        
+
         current_period_start += timedelta(days=period_days)
 
     # ---- SUMMARY STATS ----
@@ -4915,6 +4962,9 @@ async def update_personal_bests_and_medals():
 
 BADGE_DEFINITIONS = [
     # -- Distance milestones --
+    {"id": "dist_10", "name": "Primi 10 km", "cat": "distance", "cat_label": "🏃‍♂️ Milestone di distanza", "desc": "Raggiungi 10 km totali corsi", "icon": "👟", "target": 10},
+    {"id": "dist_25", "name": "25 km percorsi", "cat": "distance", "cat_label": "🏃‍♂️ Milestone di distanza", "desc": "Raggiungi 25 km totali corsi", "icon": "🦶", "target": 25},
+    {"id": "dist_50", "name": "Mezzo centinaio", "cat": "distance", "cat_label": "🏃‍♂️ Milestone di distanza", "desc": "Raggiungi 50 km totali corsi", "icon": "👣", "target": 50},
     {"id": "dist_100", "name": "Principiante dei 100 km", "cat": "distance", "cat_label": "🏃‍♂️ Milestone di distanza", "desc": "Raggiungi 100 km totali corsi", "icon": "🏃", "target": 100},
     {"id": "dist_500", "name": "Esploratore dei 500 km", "cat": "distance", "cat_label": "🏃‍♂️ Milestone di distanza", "desc": "Raggiungi 500 km totali", "icon": "🗺️", "target": 500},
     {"id": "dist_1000", "name": "Maratoneta dei 1000 km", "cat": "distance", "cat_label": "🏃‍♂️ Milestone di distanza", "desc": "Raggiungi 1000 km totali", "icon": "🏅", "target": 1000},
@@ -5304,14 +5354,24 @@ async def compute_badges() -> list:
         return str(val)[:10]
 
     runs = await db.runs.find({"date": {"$gte": BADGE_START_DATE}}, {"_id": 0}).sort("date", 1).to_list(5000)
+    # Also try without date filter in case dates are stored differently
+    if not runs:
+        runs = await db.runs.find({}, {"_id": 0}).sort("date", 1).to_list(5000)
     profile = await db.profile.find_one({}, {"_id": 0}) or {}
     # Filter best_efforts to only include those from badge start date onwards
     all_best_efforts = await db.best_efforts.find({}, {"_id": 0}).to_list(200)
     best_efforts_docs = [be for be in all_best_efforts if _date_str(be.get("run_date")) >= BADGE_START_DATE]
+    if not best_efforts_docs:
+        best_efforts_docs = all_best_efforts  # Fallback: use all best efforts
     # Filter vo2max_history to only include from badge start date
     all_vo2max = await db.vo2max_history.find({}, {"_id": 0}).sort("date", 1).to_list(500)
     vo2max_history = [v for v in all_vo2max if _date_str(v.get("date")) >= BADGE_START_DATE]
+    if not vo2max_history:
+        vo2max_history = all_vo2max  # Fallback: use all VDOT history
     training_weeks = await db.training_plan.find({"week_start": {"$gte": BADGE_START_DATE}}, {"_id": 0}).sort("week_start", 1).to_list(200)
+    if not training_weeks:
+        training_weeks = await db.training_plan.find({}, {"_id": 0}).sort("week_start", 1).to_list(200)
+    logger.info(f"Badges: start_date={BADGE_START_DATE}, runs={len(runs)}, best_efforts={len(best_efforts_docs)}, vdot_hist={len(vo2max_history)}, weeks={len(training_weeks)}")
 
     # Load existing badge states (for unlock dates)
     existing = {}
@@ -5592,10 +5652,11 @@ async def compute_badges() -> list:
         progress = 0
         target = bd.get("target", 1)
 
-        # ---- DISTANCE MILESTONES ----
-        if bid.startswith("dist_"):
-            progress = total_km
-            unlocked = total_km >= target
+        try:
+            # ---- DISTANCE MILESTONES ----
+            if bid.startswith("dist_"):
+                progress = total_km
+                unlocked = total_km >= target
 
         # ---- CONSISTENCY ----
         elif bid == "week_perfect":
@@ -6093,6 +6154,11 @@ async def compute_badges() -> list:
             target = 2
             unlocked = both
 
+        except Exception as badge_err:
+            logger.warning(f"Badge '{bid}' compute error: {badge_err}")
+            unlocked = False
+            progress = 0
+
         # Preserve unlock date or set it
         prev = existing.get(bid, {})
         unlock_date = prev.get("unlocked_date")
@@ -6133,9 +6199,11 @@ async def get_badges():
     """Return all 103 badges with their current status."""
     try:
         badges = await compute_badges()
+        logger.info(f"Badges computed: {len(badges)} total, {sum(1 for b in badges if b.get('unlocked'))} unlocked")
     except Exception as e:
-        logger.error(f"Badge compute error: {e}")
-        badges = await db.badges.find({}, {"_id": 0}).to_list(100)
+        import traceback
+        logger.error(f"Badge compute error: {e}\n{traceback.format_exc()}")
+        badges = await db.badges.find({}, {"_id": 0}).to_list(200)
 
     # Group by category
     categories = {}

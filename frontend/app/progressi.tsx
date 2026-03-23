@@ -838,7 +838,7 @@ export default function ProgressiScreen() {
         </View>
 
         {/* Pace Progression Line Chart */}
-        {analytics.pace_progression && analytics.pace_progression.length > 2 && (
+        {analytics.pace_progression && analytics.pace_progression.length > 0 && (
           <View style={styles.sectionCard}>
             <View style={styles.sectionHeader}>
               <Ionicons name="analytics" size={20} color={COLORS.blue} />
@@ -902,7 +902,7 @@ export default function ProgressiScreen() {
         )}
 
         {/* HR Zone Distribution (Seiler 2010) */}
-        {analytics.hr_zone_distribution && analytics.hr_zone_distribution.total_runs_with_hr >= 3 && (() => {
+        {analytics.hr_zone_distribution && analytics.hr_zone_distribution.total_runs_with_hr >= 1 && (() => {
           const zd = analytics.hr_zone_distribution;
           const zones = [
             { key: 'z1_pct', label: 'Z1', sublabel: 'Recovery', color: '#3b82f6', pct: zd.z1_pct },

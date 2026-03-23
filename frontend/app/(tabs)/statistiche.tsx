@@ -218,7 +218,7 @@ export default function StatisticheScreen() {
               PROGRESSI SOGLIA (ogni 15 giorni)
             </Text>
             <Text style={styles.atHistoryExplain}>
-              Stesso sforzo (FC 140-160 bpm) → Passo più veloce = miglioramento
+              Stesso sforzo → Passo più veloce = miglioramento
             </Text>
             {anaerobic_threshold?.history && anaerobic_threshold.history.length > 0 ? (
               <ATHistoryChart history={anaerobic_threshold.history} />
@@ -226,7 +226,7 @@ export default function StatisticheScreen() {
               <View style={{ alignItems: 'center', paddingVertical: SPACING.lg }}>
                 <Ionicons name="trending-up" size={32} color={COLORS.textMuted} />
                 <Text style={{ color: COLORS.textMuted, fontSize: FONT_SIZES.sm, marginTop: SPACING.sm, textAlign: 'center' }}>
-                  I progressi appariranno quando avrai corse con dati FC (sync Strava)
+                  I progressi appariranno dopo le prime corse registrate
                 </Text>
               </View>
             )}

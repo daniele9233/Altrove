@@ -27,21 +27,6 @@ export default function ProfiloScreen() {
   const [editWeight, setEditWeight] = useState('');
   const [editMaxHr, setEditMaxHr] = useState('');
   const [editMaxWeeklyKm, setEditMaxWeeklyKm] = useState('');
-  const [editRaceGoal, setEditRaceGoal] = useState('');
-  const [editRaceDate, setEditRaceDate] = useState('');
-  const [editTargetPace, setEditTargetPace] = useState('');
-  const [editTargetTime, setEditTargetTime] = useState('');
-  const [editLevel, setEditLevel] = useState('');
-  const [showRaceGoalPicker, setShowRaceGoalPicker] = useState(false);
-  const [showDatePicker, setShowDatePicker] = useState(false);
-  const [showPacePicker, setShowPacePicker] = useState(false);
-  const [showTimePicker, setShowTimePicker] = useState(false);
-  const [dateYear, setDateYear] = useState('2026');
-  const [dateMonth, setDateMonth] = useState('06');
-  const [dateDay, setDateDay] = useState('15');
-  const [timeHours, setTimeHours] = useState('1');
-  const [timeMinutes, setTimeMinutes] = useState('35');
-  const [timeSeconds, setTimeSeconds] = useState('00');
   const [saving, setSaving] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [stravaCodeModal, setStravaCodeModal] = useState(false);
@@ -84,11 +69,6 @@ export default function ProfiloScreen() {
     if (editWeight && parseFloat(editWeight) > 0) updates.weight_kg = parseFloat(editWeight);
     if (editMaxHr && parseInt(editMaxHr) > 0) updates.max_hr = parseInt(editMaxHr);
     if (editMaxWeeklyKm && parseInt(editMaxWeeklyKm) > 0) updates.max_weekly_km = parseInt(editMaxWeeklyKm);
-    if (editRaceGoal.trim()) updates.race_goal = editRaceGoal.trim();
-    if (editRaceDate.trim()) updates.race_date = editRaceDate.trim();
-    if (editTargetPace.trim()) updates.target_pace = editTargetPace.trim();
-    if (editTargetTime.trim()) updates.target_time = editTargetTime.trim();
-    if (editLevel.trim()) updates.level = editLevel.trim();
     if (Object.keys(updates).length === 0) return;
 
     setSaving(true);
@@ -100,11 +80,6 @@ export default function ProfiloScreen() {
       setEditWeight('');
       setEditMaxHr('');
       setEditMaxWeeklyKm('');
-      setEditRaceGoal('');
-      setEditRaceDate('');
-      setEditTargetPace('');
-      setEditTargetTime('');
-      setEditLevel('');
     } catch {
       Alert.alert('Errore', 'Impossibile aggiornare il profilo');
     } finally {
@@ -292,11 +267,6 @@ export default function ProfiloScreen() {
                 setEditWeight(String(profile.weight_kg || ''));
                 setEditMaxHr(String(profile.max_hr || ''));
                 setEditMaxWeeklyKm(String(profile.max_weekly_km || ''));
-                setEditRaceGoal(profile.race_goal || '');
-                setEditRaceDate(profile.race_date || '');
-                setEditTargetPace(profile.target_pace || '');
-                setEditTargetTime(profile.target_time || '');
-                setEditLevel(profile.level || '');
                 setEditModal(true);
               }}>
                 <Ionicons name="pencil" size={18} color={COLORS.lime} />
@@ -321,42 +291,57 @@ export default function ProfiloScreen() {
               </View>
             </View>
 
-            {/* Obiettivo Gara */}
-            {profile.race_goal && (
-              <>
-                <Text style={styles.sectionTitle}>OBIETTIVO GARA</Text>
-                <View style={[styles.statsGrid, { marginBottom: SPACING.md }]}>
-                  <View style={[styles.statCard, { borderColor: COLORS.lime + '30' }]}>
-                    <Text style={styles.statLabel}>GARA</Text>
-                    <Text style={[styles.statValue, { fontSize: FONT_SIZES.lg }]}>{profile.race_goal}</Text>
-                  </View>
-                  {profile.race_date && (
-                    <View style={[styles.statCard, { borderColor: COLORS.lime + '30' }]}>
-                      <Text style={styles.statLabel}>DATA</Text>
-                      <Text style={[styles.statValue, { fontSize: FONT_SIZES.lg }]}>{profile.race_date}</Text>
-                    </View>
-                  )}
-                  {profile.target_pace && (
-                    <View style={[styles.statCard, { borderColor: COLORS.orange + '30' }]}>
-                      <Text style={styles.statLabel}>PASSO TARGET</Text>
-                      <Text style={[styles.statValue, { fontSize: FONT_SIZES.lg, color: COLORS.orange }]}>{profile.target_pace}/km</Text>
-                    </View>
-                  )}
-                  {profile.target_time && (
-                    <View style={[styles.statCard, { borderColor: COLORS.orange + '30' }]}>
-                      <Text style={styles.statLabel}>TEMPO TARGET</Text>
-                      <Text style={[styles.statValue, { fontSize: FONT_SIZES.lg, color: COLORS.orange }]}>{profile.target_time}</Text>
-                    </View>
-                  )}
-                  {profile.level && (
-                    <View style={[styles.statCard, { borderColor: COLORS.blue + '30' }]}>
-                      <Text style={styles.statLabel}>LIVELLO</Text>
-                      <Text style={[styles.statValue, { fontSize: FONT_SIZES.lg, color: COLORS.blue, textTransform: 'capitalize' }]}>{profile.level}</Text>
-                    </View>
+            {/* Obiettivo Gara — Link alla pagina dedicata */}
+            <TouchableOpacity
+              onPress={() => router.push('/obiettivo')}
+              style={{
+                flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+                backgroundColor: COLORS.lime + '10', borderRadius: BORDER_RADIUS.lg,
+                padding: SPACING.lg, marginHorizontal: SPACING.xl, marginTop: SPACING.lg,
+                borderWidth: 1, borderColor: COLORS.lime + '30',
+              }}
+              activeOpacity={0.7}
+            >
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: SPACING.md, flex: 1 }}>
+                <View style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: COLORS.lime + '20', alignItems: 'center', justifyContent: 'center' }}>
+                  <Ionicons name="flag" size={20} color={COLORS.lime} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ fontSize: FONT_SIZES.body, fontWeight: '900', color: COLORS.text }}>OBIETTIVO GARA</Text>
+                  {profile.race_goal ? (
+                    <Text style={{ fontSize: FONT_SIZES.sm, color: COLORS.textSecondary, marginTop: 2 }}>
+                      {profile.race_goal}{profile.race_date ? ` • ${profile.race_date}` : ''}{profile.target_time ? ` • ${profile.target_time}` : ''}
+                    </Text>
+                  ) : (
+                    <Text style={{ fontSize: FONT_SIZES.sm, color: COLORS.textMuted, marginTop: 2 }}>Imposta il tuo obiettivo</Text>
                   )}
                 </View>
-              </>
-            )}
+              </View>
+              <Ionicons name="chevron-forward" size={20} color={COLORS.lime} />
+            </TouchableOpacity>
+
+            {/* Metodologia — Link alla pagina info */}
+            <TouchableOpacity
+              onPress={() => router.push('/metodologia')}
+              style={{
+                flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+                backgroundColor: '#3b82f610', borderRadius: BORDER_RADIUS.lg,
+                padding: SPACING.lg, marginHorizontal: SPACING.xl, marginTop: SPACING.md,
+                borderWidth: 1, borderColor: '#3b82f630',
+              }}
+              activeOpacity={0.7}
+            >
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: SPACING.md, flex: 1 }}>
+                <View style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: '#3b82f620', alignItems: 'center', justifyContent: 'center' }}>
+                  <Ionicons name="book" size={20} color="#3b82f6" />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ fontSize: FONT_SIZES.body, fontWeight: '900', color: COLORS.text }}>METODOLOGIA</Text>
+                  <Text style={{ fontSize: FONT_SIZES.sm, color: COLORS.textMuted, marginTop: 2 }}>Protocollo e basi scientifiche del piano</Text>
+                </View>
+              </View>
+              <Ionicons name="chevron-forward" size={20} color="#3b82f6" />
+            </TouchableOpacity>
 
             {/* PBs */}
             <Text style={styles.sectionTitle}>PERSONAL BEST</Text>
@@ -676,220 +661,6 @@ export default function ProfiloScreen() {
               placeholder="Km massimi settimanali"
               placeholderTextColor={COLORS.textMuted}
             />
-
-            <View style={{ height: 1, backgroundColor: COLORS.cardBorder, marginVertical: SPACING.md }} />
-            <Text style={[styles.modalLabel, { color: COLORS.lime, fontSize: FONT_SIZES.sm }]}>OBIETTIVO GARA</Text>
-
-            {/* GARA — Dropdown */}
-            <Text style={styles.modalLabel}>GARA</Text>
-            <TouchableOpacity
-              style={[styles.modalInput, { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }]}
-              onPress={() => setShowRaceGoalPicker(!showRaceGoalPicker)}
-            >
-              <Text style={{ color: editRaceGoal ? COLORS.text : COLORS.textMuted, fontSize: FONT_SIZES.body }}>
-                {editRaceGoal || 'Seleziona distanza'}
-              </Text>
-              <Ionicons name={showRaceGoalPicker ? 'chevron-up' : 'chevron-down'} size={16} color={COLORS.textMuted} />
-            </TouchableOpacity>
-            {showRaceGoalPicker && (
-              <View style={{ backgroundColor: COLORS.inputBg, borderRadius: BORDER_RADIUS.md, borderWidth: 1, borderColor: COLORS.cardBorder, marginBottom: SPACING.sm, overflow: 'hidden' }}>
-                {['5K', '10K', 'Mezza Maratona', 'Maratona', '15K', '30K', 'Ultra Trail'].map(goal => (
-                  <TouchableOpacity
-                    key={goal}
-                    onPress={() => { setEditRaceGoal(goal); setShowRaceGoalPicker(false); }}
-                    style={{
-                      paddingVertical: SPACING.md, paddingHorizontal: SPACING.lg,
-                      backgroundColor: editRaceGoal === goal ? COLORS.lime + '20' : 'transparent',
-                      borderBottomWidth: 1, borderBottomColor: COLORS.cardBorder,
-                    }}
-                  >
-                    <Text style={{ color: editRaceGoal === goal ? COLORS.lime : COLORS.text, fontSize: FONT_SIZES.body, fontWeight: editRaceGoal === goal ? '700' : '400' }}>{goal}</Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
-            )}
-
-            {/* DATA GARA — Selettori giorno/mese/anno */}
-            <Text style={styles.modalLabel}>DATA GARA</Text>
-            <TouchableOpacity
-              style={[styles.modalInput, { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }]}
-              onPress={() => {
-                if (editRaceDate) {
-                  const parts = editRaceDate.split('-');
-                  if (parts.length === 3) { setDateYear(parts[0]); setDateMonth(parts[1]); setDateDay(parts[2]); }
-                }
-                setShowDatePicker(!showDatePicker);
-              }}
-            >
-              <Text style={{ color: editRaceDate ? COLORS.text : COLORS.textMuted, fontSize: FONT_SIZES.body }}>
-                {editRaceDate || 'Seleziona data'}
-              </Text>
-              <Ionicons name="calendar" size={16} color={COLORS.textMuted} />
-            </TouchableOpacity>
-            {showDatePicker && (
-              <View style={{ backgroundColor: COLORS.inputBg, borderRadius: BORDER_RADIUS.md, borderWidth: 1, borderColor: COLORS.cardBorder, marginBottom: SPACING.sm, padding: SPACING.md }}>
-                <View style={{ flexDirection: 'row', gap: SPACING.sm }}>
-                  {/* Anno */}
-                  <View style={{ flex: 1 }}>
-                    <Text style={{ color: COLORS.textMuted, fontSize: FONT_SIZES.xs, marginBottom: 4, textAlign: 'center' }}>ANNO</Text>
-                    <ScrollView style={{ maxHeight: 120 }} nestedScrollEnabled>
-                      {['2025', '2026', '2027', '2028', '2029', '2030'].map(y => (
-                        <TouchableOpacity key={y} onPress={() => setDateYear(y)}
-                          style={{ paddingVertical: 6, alignItems: 'center', backgroundColor: dateYear === y ? COLORS.lime + '20' : 'transparent', borderRadius: 6 }}>
-                          <Text style={{ color: dateYear === y ? COLORS.lime : COLORS.text, fontWeight: dateYear === y ? '700' : '400', fontSize: FONT_SIZES.body }}>{y}</Text>
-                        </TouchableOpacity>
-                      ))}
-                    </ScrollView>
-                  </View>
-                  {/* Mese */}
-                  <View style={{ flex: 1 }}>
-                    <Text style={{ color: COLORS.textMuted, fontSize: FONT_SIZES.xs, marginBottom: 4, textAlign: 'center' }}>MESE</Text>
-                    <ScrollView style={{ maxHeight: 120 }} nestedScrollEnabled>
-                      {['01','02','03','04','05','06','07','08','09','10','11','12'].map(m => {
-                        const mNames = ['Gen','Feb','Mar','Apr','Mag','Giu','Lug','Ago','Set','Ott','Nov','Dic'];
-                        return (
-                          <TouchableOpacity key={m} onPress={() => setDateMonth(m)}
-                            style={{ paddingVertical: 6, alignItems: 'center', backgroundColor: dateMonth === m ? COLORS.lime + '20' : 'transparent', borderRadius: 6 }}>
-                            <Text style={{ color: dateMonth === m ? COLORS.lime : COLORS.text, fontWeight: dateMonth === m ? '700' : '400', fontSize: FONT_SIZES.body }}>{mNames[parseInt(m)-1]}</Text>
-                          </TouchableOpacity>
-                        );
-                      })}
-                    </ScrollView>
-                  </View>
-                  {/* Giorno */}
-                  <View style={{ flex: 1 }}>
-                    <Text style={{ color: COLORS.textMuted, fontSize: FONT_SIZES.xs, marginBottom: 4, textAlign: 'center' }}>GIORNO</Text>
-                    <ScrollView style={{ maxHeight: 120 }} nestedScrollEnabled>
-                      {Array.from({length: 31}, (_, i) => String(i+1).padStart(2, '0')).map(d => (
-                        <TouchableOpacity key={d} onPress={() => setDateDay(d)}
-                          style={{ paddingVertical: 6, alignItems: 'center', backgroundColor: dateDay === d ? COLORS.lime + '20' : 'transparent', borderRadius: 6 }}>
-                          <Text style={{ color: dateDay === d ? COLORS.lime : COLORS.text, fontWeight: dateDay === d ? '700' : '400', fontSize: FONT_SIZES.body }}>{d}</Text>
-                        </TouchableOpacity>
-                      ))}
-                    </ScrollView>
-                  </View>
-                </View>
-                <TouchableOpacity
-                  onPress={() => { setEditRaceDate(`${dateYear}-${dateMonth}-${dateDay}`); setShowDatePicker(false); }}
-                  style={{ marginTop: SPACING.md, backgroundColor: COLORS.lime, borderRadius: BORDER_RADIUS.full, paddingVertical: SPACING.sm, alignItems: 'center' }}
-                >
-                  <Text style={{ color: COLORS.limeDark, fontWeight: '700', fontSize: FONT_SIZES.sm }}>CONFERMA DATA</Text>
-                </TouchableOpacity>
-              </View>
-            )}
-
-            {/* PASSO OBIETTIVO — Dropdown */}
-            <Text style={styles.modalLabel}>PASSO OBIETTIVO (/KM)</Text>
-            <TouchableOpacity
-              style={[styles.modalInput, { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }]}
-              onPress={() => setShowPacePicker(!showPacePicker)}
-            >
-              <Text style={{ color: editTargetPace ? COLORS.text : COLORS.textMuted, fontSize: FONT_SIZES.body }}>
-                {editTargetPace ? `${editTargetPace}/km` : 'Seleziona passo'}
-              </Text>
-              <Ionicons name={showPacePicker ? 'chevron-up' : 'chevron-down'} size={16} color={COLORS.textMuted} />
-            </TouchableOpacity>
-            {showPacePicker && (
-              <View style={{ backgroundColor: COLORS.inputBg, borderRadius: BORDER_RADIUS.md, borderWidth: 1, borderColor: COLORS.cardBorder, marginBottom: SPACING.sm, overflow: 'hidden' }}>
-                <ScrollView style={{ maxHeight: 200 }} nestedScrollEnabled>
-                  {['3:30','3:40','3:45','3:50','4:00','4:05','4:10','4:15','4:20','4:25','4:30','4:35','4:40','4:45','4:50','5:00','5:10','5:15','5:20','5:30','5:40','5:45','5:50','6:00','6:15','6:30','6:45','7:00','7:30','8:00'].map(p => (
-                    <TouchableOpacity
-                      key={p}
-                      onPress={() => { setEditTargetPace(p); setShowPacePicker(false); }}
-                      style={{
-                        paddingVertical: SPACING.md, paddingHorizontal: SPACING.lg,
-                        backgroundColor: editTargetPace === p ? COLORS.lime + '20' : 'transparent',
-                        borderBottomWidth: 1, borderBottomColor: COLORS.cardBorder,
-                      }}
-                    >
-                      <Text style={{ color: editTargetPace === p ? COLORS.lime : COLORS.text, fontSize: FONT_SIZES.body, fontWeight: editTargetPace === p ? '700' : '400' }}>{p}/km</Text>
-                    </TouchableOpacity>
-                  ))}
-                </ScrollView>
-              </View>
-            )}
-
-            {/* TEMPO OBIETTIVO — Selettore ore:minuti:secondi */}
-            <Text style={styles.modalLabel}>TEMPO OBIETTIVO</Text>
-            <TouchableOpacity
-              style={[styles.modalInput, { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }]}
-              onPress={() => setShowTimePicker(!showTimePicker)}
-            >
-              <Text style={{ color: editTargetTime ? COLORS.text : COLORS.textMuted, fontSize: FONT_SIZES.body }}>
-                {editTargetTime || 'Seleziona tempo'}
-              </Text>
-              <Ionicons name="time" size={16} color={COLORS.textMuted} />
-            </TouchableOpacity>
-            {showTimePicker && (
-              <View style={{ backgroundColor: COLORS.inputBg, borderRadius: BORDER_RADIUS.md, borderWidth: 1, borderColor: COLORS.cardBorder, marginBottom: SPACING.sm, padding: SPACING.md }}>
-                <View style={{ flexDirection: 'row', gap: SPACING.xs, alignItems: 'center' }}>
-                  <View style={{ flex: 1 }}>
-                    <Text style={{ color: COLORS.textMuted, fontSize: FONT_SIZES.xs, marginBottom: 4, textAlign: 'center', fontWeight: '700' }}>ORE</Text>
-                    <ScrollView style={{ maxHeight: 120 }} nestedScrollEnabled showsVerticalScrollIndicator={false}>
-                      {['0','1','2','3','4','5','6'].map(h => (
-                        <TouchableOpacity key={h} onPress={() => setTimeHours(h)}
-                          style={{ paddingVertical: 6, alignItems: 'center', backgroundColor: timeHours === h ? COLORS.lime + '20' : 'transparent', borderRadius: 6 }}>
-                          <Text style={{ color: timeHours === h ? COLORS.lime : COLORS.text, fontWeight: timeHours === h ? '700' : '400', fontSize: FONT_SIZES.lg }}>{h}</Text>
-                        </TouchableOpacity>
-                      ))}
-                    </ScrollView>
-                  </View>
-                  <Text style={{ color: COLORS.textMuted, fontSize: FONT_SIZES.xl, fontWeight: '700' }}>:</Text>
-                  <View style={{ flex: 1 }}>
-                    <Text style={{ color: COLORS.textMuted, fontSize: FONT_SIZES.xs, marginBottom: 4, textAlign: 'center', fontWeight: '700' }}>MIN</Text>
-                    <ScrollView style={{ maxHeight: 120 }} nestedScrollEnabled showsVerticalScrollIndicator={false}>
-                      {Array.from({length: 60}, (_, i) => String(i).padStart(2, '0')).map(m => (
-                        <TouchableOpacity key={m} onPress={() => setTimeMinutes(m)}
-                          style={{ paddingVertical: 6, alignItems: 'center', backgroundColor: timeMinutes === m ? COLORS.lime + '20' : 'transparent', borderRadius: 6 }}>
-                          <Text style={{ color: timeMinutes === m ? COLORS.lime : COLORS.text, fontWeight: timeMinutes === m ? '700' : '400', fontSize: FONT_SIZES.lg }}>{m}</Text>
-                        </TouchableOpacity>
-                      ))}
-                    </ScrollView>
-                  </View>
-                  <Text style={{ color: COLORS.textMuted, fontSize: FONT_SIZES.xl, fontWeight: '700' }}>:</Text>
-                  <View style={{ flex: 1 }}>
-                    <Text style={{ color: COLORS.textMuted, fontSize: FONT_SIZES.xs, marginBottom: 4, textAlign: 'center', fontWeight: '700' }}>SEC</Text>
-                    <ScrollView style={{ maxHeight: 120 }} nestedScrollEnabled showsVerticalScrollIndicator={false}>
-                      {Array.from({length: 60}, (_, i) => String(i).padStart(2, '0')).map(s => (
-                        <TouchableOpacity key={s} onPress={() => setTimeSeconds(s)}
-                          style={{ paddingVertical: 6, alignItems: 'center', backgroundColor: timeSeconds === s ? COLORS.lime + '20' : 'transparent', borderRadius: 6 }}>
-                          <Text style={{ color: timeSeconds === s ? COLORS.lime : COLORS.text, fontWeight: timeSeconds === s ? '700' : '400', fontSize: FONT_SIZES.lg }}>{s}</Text>
-                        </TouchableOpacity>
-                      ))}
-                    </ScrollView>
-                  </View>
-                </View>
-                <TouchableOpacity
-                  onPress={() => { setEditTargetTime(`${timeHours}:${timeMinutes}:${timeSeconds}`); setShowTimePicker(false); }}
-                  style={{ marginTop: SPACING.md, backgroundColor: COLORS.lime, borderRadius: BORDER_RADIUS.full, paddingVertical: SPACING.sm, alignItems: 'center' }}
-                >
-                  <Text style={{ color: COLORS.limeDark, fontWeight: '800', fontSize: FONT_SIZES.sm }}>CONFERMA TEMPO</Text>
-                </TouchableOpacity>
-              </View>
-            )}
-
-            {/* LIVELLO — Bottoni */}
-            <Text style={styles.modalLabel}>LIVELLO</Text>
-            <View style={{ flexDirection: 'row', gap: SPACING.sm, marginBottom: SPACING.md }}>
-              {['principiante', 'intermedio', 'avanzato'].map(lev => (
-                <TouchableOpacity
-                  key={lev}
-                  onPress={() => setEditLevel(lev)}
-                  style={{
-                    flex: 1, paddingVertical: SPACING.sm, borderRadius: BORDER_RADIUS.md,
-                    backgroundColor: editLevel === lev ? COLORS.lime + '30' : COLORS.inputBg,
-                    borderWidth: 1, borderColor: editLevel === lev ? COLORS.lime : COLORS.cardBorder,
-                    alignItems: 'center',
-                  }}
-                >
-                  <Text style={{
-                    fontSize: FONT_SIZES.xs, fontWeight: '700',
-                    color: editLevel === lev ? COLORS.lime : COLORS.textMuted,
-                    textTransform: 'uppercase',
-                  }}>{lev}</Text>
-                </TouchableOpacity>
-              ))}
-            </View>
 
             <View style={styles.modalButtons}>
               <TouchableOpacity testID="cancel-edit-btn" style={styles.modalCancelBtn} onPress={() => setEditModal(false)}>
