@@ -32,6 +32,13 @@ export default function ProfiloScreen() {
   const [editTargetPace, setEditTargetPace] = useState('');
   const [editTargetTime, setEditTargetTime] = useState('');
   const [editLevel, setEditLevel] = useState('');
+  const [showRaceGoalPicker, setShowRaceGoalPicker] = useState(false);
+  const [showDatePicker, setShowDatePicker] = useState(false);
+  const [showPacePicker, setShowPacePicker] = useState(false);
+  const [showTimePicker, setShowTimePicker] = useState(false);
+  const [dateYear, setDateYear] = useState('2026');
+  const [dateMonth, setDateMonth] = useState('06');
+  const [dateDay, setDateDay] = useState('15');
   const [saving, setSaving] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [stravaCodeModal, setStravaCodeModal] = useState(false);
@@ -668,44 +675,174 @@ export default function ProfiloScreen() {
             />
 
             <View style={{ height: 1, backgroundColor: COLORS.cardBorder, marginVertical: SPACING.md }} />
-            <Text style={[styles.modalLabel, { color: COLORS.lime }]}>OBIETTIVO GARA</Text>
+            <Text style={[styles.modalLabel, { color: COLORS.lime, fontSize: FONT_SIZES.sm }]}>OBIETTIVO GARA</Text>
 
+            {/* GARA — Dropdown */}
             <Text style={styles.modalLabel}>GARA</Text>
-            <TextInput
-              style={styles.modalInput}
-              value={editRaceGoal}
-              onChangeText={setEditRaceGoal}
-              placeholder="es. Mezza Maratona, 10K, Maratona"
-              placeholderTextColor={COLORS.textMuted}
-            />
+            <TouchableOpacity
+              style={[styles.modalInput, { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }]}
+              onPress={() => setShowRaceGoalPicker(!showRaceGoalPicker)}
+            >
+              <Text style={{ color: editRaceGoal ? COLORS.text : COLORS.textMuted, fontSize: FONT_SIZES.body }}>
+                {editRaceGoal || 'Seleziona distanza'}
+              </Text>
+              <Ionicons name={showRaceGoalPicker ? 'chevron-up' : 'chevron-down'} size={16} color={COLORS.textMuted} />
+            </TouchableOpacity>
+            {showRaceGoalPicker && (
+              <View style={{ backgroundColor: COLORS.inputBg, borderRadius: BORDER_RADIUS.md, borderWidth: 1, borderColor: COLORS.cardBorder, marginBottom: SPACING.sm, overflow: 'hidden' }}>
+                {['5K', '10K', 'Mezza Maratona', 'Maratona', '15K', '30K', 'Ultra Trail'].map(goal => (
+                  <TouchableOpacity
+                    key={goal}
+                    onPress={() => { setEditRaceGoal(goal); setShowRaceGoalPicker(false); }}
+                    style={{
+                      paddingVertical: SPACING.md, paddingHorizontal: SPACING.lg,
+                      backgroundColor: editRaceGoal === goal ? COLORS.lime + '20' : 'transparent',
+                      borderBottomWidth: 1, borderBottomColor: COLORS.cardBorder,
+                    }}
+                  >
+                    <Text style={{ color: editRaceGoal === goal ? COLORS.lime : COLORS.text, fontSize: FONT_SIZES.body, fontWeight: editRaceGoal === goal ? '700' : '400' }}>{goal}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            )}
 
-            <Text style={styles.modalLabel}>DATA GARA (YYYY-MM-DD)</Text>
-            <TextInput
-              style={styles.modalInput}
-              value={editRaceDate}
-              onChangeText={setEditRaceDate}
-              placeholder="es. 2026-12-12"
-              placeholderTextColor={COLORS.textMuted}
-            />
+            {/* DATA GARA — Selettori giorno/mese/anno */}
+            <Text style={styles.modalLabel}>DATA GARA</Text>
+            <TouchableOpacity
+              style={[styles.modalInput, { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }]}
+              onPress={() => {
+                if (editRaceDate) {
+                  const parts = editRaceDate.split('-');
+                  if (parts.length === 3) { setDateYear(parts[0]); setDateMonth(parts[1]); setDateDay(parts[2]); }
+                }
+                setShowDatePicker(!showDatePicker);
+              }}
+            >
+              <Text style={{ color: editRaceDate ? COLORS.text : COLORS.textMuted, fontSize: FONT_SIZES.body }}>
+                {editRaceDate || 'Seleziona data'}
+              </Text>
+              <Ionicons name="calendar" size={16} color={COLORS.textMuted} />
+            </TouchableOpacity>
+            {showDatePicker && (
+              <View style={{ backgroundColor: COLORS.inputBg, borderRadius: BORDER_RADIUS.md, borderWidth: 1, borderColor: COLORS.cardBorder, marginBottom: SPACING.sm, padding: SPACING.md }}>
+                <View style={{ flexDirection: 'row', gap: SPACING.sm }}>
+                  {/* Anno */}
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ color: COLORS.textMuted, fontSize: FONT_SIZES.xs, marginBottom: 4, textAlign: 'center' }}>ANNO</Text>
+                    <ScrollView style={{ maxHeight: 120 }} nestedScrollEnabled>
+                      {['2025', '2026', '2027', '2028', '2029', '2030'].map(y => (
+                        <TouchableOpacity key={y} onPress={() => setDateYear(y)}
+                          style={{ paddingVertical: 6, alignItems: 'center', backgroundColor: dateYear === y ? COLORS.lime + '20' : 'transparent', borderRadius: 6 }}>
+                          <Text style={{ color: dateYear === y ? COLORS.lime : COLORS.text, fontWeight: dateYear === y ? '700' : '400', fontSize: FONT_SIZES.body }}>{y}</Text>
+                        </TouchableOpacity>
+                      ))}
+                    </ScrollView>
+                  </View>
+                  {/* Mese */}
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ color: COLORS.textMuted, fontSize: FONT_SIZES.xs, marginBottom: 4, textAlign: 'center' }}>MESE</Text>
+                    <ScrollView style={{ maxHeight: 120 }} nestedScrollEnabled>
+                      {['01','02','03','04','05','06','07','08','09','10','11','12'].map(m => {
+                        const mNames = ['Gen','Feb','Mar','Apr','Mag','Giu','Lug','Ago','Set','Ott','Nov','Dic'];
+                        return (
+                          <TouchableOpacity key={m} onPress={() => setDateMonth(m)}
+                            style={{ paddingVertical: 6, alignItems: 'center', backgroundColor: dateMonth === m ? COLORS.lime + '20' : 'transparent', borderRadius: 6 }}>
+                            <Text style={{ color: dateMonth === m ? COLORS.lime : COLORS.text, fontWeight: dateMonth === m ? '700' : '400', fontSize: FONT_SIZES.body }}>{mNames[parseInt(m)-1]}</Text>
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </ScrollView>
+                  </View>
+                  {/* Giorno */}
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ color: COLORS.textMuted, fontSize: FONT_SIZES.xs, marginBottom: 4, textAlign: 'center' }}>GIORNO</Text>
+                    <ScrollView style={{ maxHeight: 120 }} nestedScrollEnabled>
+                      {Array.from({length: 31}, (_, i) => String(i+1).padStart(2, '0')).map(d => (
+                        <TouchableOpacity key={d} onPress={() => setDateDay(d)}
+                          style={{ paddingVertical: 6, alignItems: 'center', backgroundColor: dateDay === d ? COLORS.lime + '20' : 'transparent', borderRadius: 6 }}>
+                          <Text style={{ color: dateDay === d ? COLORS.lime : COLORS.text, fontWeight: dateDay === d ? '700' : '400', fontSize: FONT_SIZES.body }}>{d}</Text>
+                        </TouchableOpacity>
+                      ))}
+                    </ScrollView>
+                  </View>
+                </View>
+                <TouchableOpacity
+                  onPress={() => { setEditRaceDate(`${dateYear}-${dateMonth}-${dateDay}`); setShowDatePicker(false); }}
+                  style={{ marginTop: SPACING.md, backgroundColor: COLORS.lime, borderRadius: BORDER_RADIUS.full, paddingVertical: SPACING.sm, alignItems: 'center' }}
+                >
+                  <Text style={{ color: COLORS.limeDark, fontWeight: '700', fontSize: FONT_SIZES.sm }}>CONFERMA DATA</Text>
+                </TouchableOpacity>
+              </View>
+            )}
 
-            <Text style={styles.modalLabel}>PASSO OBIETTIVO (MIN:SEC/KM)</Text>
-            <TextInput
-              style={styles.modalInput}
-              value={editTargetPace}
-              onChangeText={setEditTargetPace}
-              placeholder="es. 4:30"
-              placeholderTextColor={COLORS.textMuted}
-            />
+            {/* PASSO OBIETTIVO — Dropdown */}
+            <Text style={styles.modalLabel}>PASSO OBIETTIVO (/KM)</Text>
+            <TouchableOpacity
+              style={[styles.modalInput, { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }]}
+              onPress={() => setShowPacePicker(!showPacePicker)}
+            >
+              <Text style={{ color: editTargetPace ? COLORS.text : COLORS.textMuted, fontSize: FONT_SIZES.body }}>
+                {editTargetPace ? `${editTargetPace}/km` : 'Seleziona passo'}
+              </Text>
+              <Ionicons name={showPacePicker ? 'chevron-up' : 'chevron-down'} size={16} color={COLORS.textMuted} />
+            </TouchableOpacity>
+            {showPacePicker && (
+              <View style={{ backgroundColor: COLORS.inputBg, borderRadius: BORDER_RADIUS.md, borderWidth: 1, borderColor: COLORS.cardBorder, marginBottom: SPACING.sm, overflow: 'hidden' }}>
+                <ScrollView style={{ maxHeight: 200 }} nestedScrollEnabled>
+                  {['3:30','3:40','3:45','3:50','4:00','4:05','4:10','4:15','4:20','4:25','4:30','4:35','4:40','4:45','4:50','5:00','5:10','5:15','5:20','5:30','5:40','5:45','5:50','6:00','6:15','6:30','6:45','7:00','7:30','8:00'].map(p => (
+                    <TouchableOpacity
+                      key={p}
+                      onPress={() => { setEditTargetPace(p); setShowPacePicker(false); }}
+                      style={{
+                        paddingVertical: SPACING.md, paddingHorizontal: SPACING.lg,
+                        backgroundColor: editTargetPace === p ? COLORS.lime + '20' : 'transparent',
+                        borderBottomWidth: 1, borderBottomColor: COLORS.cardBorder,
+                      }}
+                    >
+                      <Text style={{ color: editTargetPace === p ? COLORS.lime : COLORS.text, fontSize: FONT_SIZES.body, fontWeight: editTargetPace === p ? '700' : '400' }}>{p}/km</Text>
+                    </TouchableOpacity>
+                  ))}
+                </ScrollView>
+              </View>
+            )}
 
+            {/* TEMPO OBIETTIVO — Dropdown basato su gara */}
             <Text style={styles.modalLabel}>TEMPO OBIETTIVO</Text>
-            <TextInput
-              style={styles.modalInput}
-              value={editTargetTime}
-              onChangeText={setEditTargetTime}
-              placeholder="es. 1:35:00"
-              placeholderTextColor={COLORS.textMuted}
-            />
+            <TouchableOpacity
+              style={[styles.modalInput, { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }]}
+              onPress={() => setShowTimePicker(!showTimePicker)}
+            >
+              <Text style={{ color: editTargetTime ? COLORS.text : COLORS.textMuted, fontSize: FONT_SIZES.body }}>
+                {editTargetTime || 'Seleziona tempo'}
+              </Text>
+              <Ionicons name={showTimePicker ? 'chevron-up' : 'chevron-down'} size={16} color={COLORS.textMuted} />
+            </TouchableOpacity>
+            {showTimePicker && (
+              <View style={{ backgroundColor: COLORS.inputBg, borderRadius: BORDER_RADIUS.md, borderWidth: 1, borderColor: COLORS.cardBorder, marginBottom: SPACING.sm, overflow: 'hidden' }}>
+                <ScrollView style={{ maxHeight: 200 }} nestedScrollEnabled>
+                  {(editRaceGoal === '5K' ? ['0:17:00','0:18:00','0:19:00','0:20:00','0:21:00','0:22:00','0:23:00','0:24:00','0:25:00','0:26:00','0:27:00','0:28:00','0:29:00','0:30:00','0:32:00','0:35:00','0:38:00','0:40:00'] :
+                    editRaceGoal === '10K' ? ['0:35:00','0:37:00','0:38:00','0:40:00','0:42:00','0:43:00','0:45:00','0:47:00','0:48:00','0:50:00','0:52:00','0:55:00','0:58:00','1:00:00','1:05:00','1:10:00','1:15:00'] :
+                    editRaceGoal === 'Mezza Maratona' ? ['1:15:00','1:20:00','1:25:00','1:28:00','1:30:00','1:32:00','1:35:00','1:38:00','1:40:00','1:42:00','1:45:00','1:48:00','1:50:00','1:55:00','2:00:00','2:05:00','2:10:00','2:15:00','2:20:00','2:30:00'] :
+                    editRaceGoal === 'Maratona' ? ['2:45:00','2:50:00','2:55:00','3:00:00','3:05:00','3:10:00','3:15:00','3:20:00','3:25:00','3:30:00','3:35:00','3:40:00','3:45:00','3:50:00','3:55:00','4:00:00','4:10:00','4:20:00','4:30:00','4:45:00','5:00:00'] :
+                    ['0:20:00','0:25:00','0:30:00','0:35:00','0:40:00','0:45:00','0:50:00','0:55:00','1:00:00','1:10:00','1:20:00','1:30:00','1:45:00','2:00:00','2:30:00','3:00:00','3:30:00','4:00:00','4:30:00','5:00:00']
+                  ).map(t => (
+                    <TouchableOpacity
+                      key={t}
+                      onPress={() => { setEditTargetTime(t); setShowTimePicker(false); }}
+                      style={{
+                        paddingVertical: SPACING.md, paddingHorizontal: SPACING.lg,
+                        backgroundColor: editTargetTime === t ? COLORS.lime + '20' : 'transparent',
+                        borderBottomWidth: 1, borderBottomColor: COLORS.cardBorder,
+                      }}
+                    >
+                      <Text style={{ color: editTargetTime === t ? COLORS.lime : COLORS.text, fontSize: FONT_SIZES.body, fontWeight: editTargetTime === t ? '700' : '400' }}>{t}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </ScrollView>
+              </View>
+            )}
 
+            {/* LIVELLO — Bottoni */}
             <Text style={styles.modalLabel}>LIVELLO</Text>
             <View style={{ flexDirection: 'row', gap: SPACING.sm, marginBottom: SPACING.md }}>
               {['principiante', 'intermedio', 'avanzato'].map(lev => (
