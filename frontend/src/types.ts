@@ -116,6 +116,8 @@ export interface Profile {
   target_time: string;
   pbs: Record<string, { time: string; date: string; pace: string }>;
   max_weekly_km: number;
+  height_cm: number;
+  level: string;
   injury: {
     type: string;
     date: string;

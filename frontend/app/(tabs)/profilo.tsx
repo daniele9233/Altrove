@@ -27,6 +27,11 @@ export default function ProfiloScreen() {
   const [editWeight, setEditWeight] = useState('');
   const [editMaxHr, setEditMaxHr] = useState('');
   const [editMaxWeeklyKm, setEditMaxWeeklyKm] = useState('');
+  const [editRaceGoal, setEditRaceGoal] = useState('');
+  const [editRaceDate, setEditRaceDate] = useState('');
+  const [editTargetPace, setEditTargetPace] = useState('');
+  const [editTargetTime, setEditTargetTime] = useState('');
+  const [editLevel, setEditLevel] = useState('');
   const [saving, setSaving] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [stravaCodeModal, setStravaCodeModal] = useState(false);
@@ -69,6 +74,11 @@ export default function ProfiloScreen() {
     if (editWeight && parseFloat(editWeight) > 0) updates.weight_kg = parseFloat(editWeight);
     if (editMaxHr && parseInt(editMaxHr) > 0) updates.max_hr = parseInt(editMaxHr);
     if (editMaxWeeklyKm && parseInt(editMaxWeeklyKm) > 0) updates.max_weekly_km = parseInt(editMaxWeeklyKm);
+    if (editRaceGoal.trim()) updates.race_goal = editRaceGoal.trim();
+    if (editRaceDate.trim()) updates.race_date = editRaceDate.trim();
+    if (editTargetPace.trim()) updates.target_pace = editTargetPace.trim();
+    if (editTargetTime.trim()) updates.target_time = editTargetTime.trim();
+    if (editLevel.trim()) updates.level = editLevel.trim();
     if (Object.keys(updates).length === 0) return;
 
     setSaving(true);
@@ -80,6 +90,11 @@ export default function ProfiloScreen() {
       setEditWeight('');
       setEditMaxHr('');
       setEditMaxWeeklyKm('');
+      setEditRaceGoal('');
+      setEditRaceDate('');
+      setEditTargetPace('');
+      setEditTargetTime('');
+      setEditLevel('');
     } catch {
       Alert.alert('Errore', 'Impossibile aggiornare il profilo');
     } finally {
@@ -263,10 +278,15 @@ export default function ProfiloScreen() {
             <View style={styles.statsHeader}>
               <Text style={styles.sectionTitle}>DATI PERSONALI</Text>
               <TouchableOpacity testID="edit-profile-btn" onPress={() => {
-                setEditAge(String(profile.age));
-                setEditWeight(String(profile.weight_kg));
-                setEditMaxHr(String(profile.max_hr || 180));
-                setEditMaxWeeklyKm(String(profile.max_weekly_km || 60));
+                setEditAge(String(profile.age || ''));
+                setEditWeight(String(profile.weight_kg || ''));
+                setEditMaxHr(String(profile.max_hr || ''));
+                setEditMaxWeeklyKm(String(profile.max_weekly_km || ''));
+                setEditRaceGoal(profile.race_goal || '');
+                setEditRaceDate(profile.race_date || '');
+                setEditTargetPace(profile.target_pace || '');
+                setEditTargetTime(profile.target_time || '');
+                setEditLevel(profile.level || '');
                 setEditModal(true);
               }}>
                 <Ionicons name="pencil" size={18} color={COLORS.lime} />
@@ -290,6 +310,43 @@ export default function ProfiloScreen() {
                 <Text style={styles.statValue}>{profile.max_weekly_km || 60}</Text>
               </View>
             </View>
+
+            {/* Obiettivo Gara */}
+            {profile.race_goal && (
+              <>
+                <Text style={styles.sectionTitle}>OBIETTIVO GARA</Text>
+                <View style={[styles.statsGrid, { marginBottom: SPACING.md }]}>
+                  <View style={[styles.statCard, { borderColor: COLORS.lime + '30' }]}>
+                    <Text style={styles.statLabel}>GARA</Text>
+                    <Text style={[styles.statValue, { fontSize: FONT_SIZES.lg }]}>{profile.race_goal}</Text>
+                  </View>
+                  {profile.race_date && (
+                    <View style={[styles.statCard, { borderColor: COLORS.lime + '30' }]}>
+                      <Text style={styles.statLabel}>DATA</Text>
+                      <Text style={[styles.statValue, { fontSize: FONT_SIZES.lg }]}>{profile.race_date}</Text>
+                    </View>
+                  )}
+                  {profile.target_pace && (
+                    <View style={[styles.statCard, { borderColor: COLORS.orange + '30' }]}>
+                      <Text style={styles.statLabel}>PASSO TARGET</Text>
+                      <Text style={[styles.statValue, { fontSize: FONT_SIZES.lg, color: COLORS.orange }]}>{profile.target_pace}/km</Text>
+                    </View>
+                  )}
+                  {profile.target_time && (
+                    <View style={[styles.statCard, { borderColor: COLORS.orange + '30' }]}>
+                      <Text style={styles.statLabel}>TEMPO TARGET</Text>
+                      <Text style={[styles.statValue, { fontSize: FONT_SIZES.lg, color: COLORS.orange }]}>{profile.target_time}</Text>
+                    </View>
+                  )}
+                  {profile.level && (
+                    <View style={[styles.statCard, { borderColor: COLORS.blue + '30' }]}>
+                      <Text style={styles.statLabel}>LIVELLO</Text>
+                      <Text style={[styles.statValue, { fontSize: FONT_SIZES.lg, color: COLORS.blue, textTransform: 'capitalize' }]}>{profile.level}</Text>
+                    </View>
+                  )}
+                </View>
+              </>
+            )}
 
             {/* PBs */}
             <Text style={styles.sectionTitle}>PERSONAL BEST</Text>
@@ -562,6 +619,7 @@ export default function ProfiloScreen() {
       {/* Edit Profile Modal */}
       <Modal visible={editModal} transparent animationType="fade">
         <View style={styles.modalOverlay}>
+          <ScrollView style={{ maxHeight: '85%' }} contentContainerStyle={{ flexGrow: 0 }}>
           <View style={styles.modalContent}>
             <Text style={styles.modalTitle}>MODIFICA PROFILO</Text>
 
@@ -609,6 +667,67 @@ export default function ProfiloScreen() {
               placeholderTextColor={COLORS.textMuted}
             />
 
+            <View style={{ height: 1, backgroundColor: COLORS.cardBorder, marginVertical: SPACING.md }} />
+            <Text style={[styles.modalLabel, { color: COLORS.lime }]}>OBIETTIVO GARA</Text>
+
+            <Text style={styles.modalLabel}>GARA</Text>
+            <TextInput
+              style={styles.modalInput}
+              value={editRaceGoal}
+              onChangeText={setEditRaceGoal}
+              placeholder="es. Mezza Maratona, 10K, Maratona"
+              placeholderTextColor={COLORS.textMuted}
+            />
+
+            <Text style={styles.modalLabel}>DATA GARA (YYYY-MM-DD)</Text>
+            <TextInput
+              style={styles.modalInput}
+              value={editRaceDate}
+              onChangeText={setEditRaceDate}
+              placeholder="es. 2026-12-12"
+              placeholderTextColor={COLORS.textMuted}
+            />
+
+            <Text style={styles.modalLabel}>PASSO OBIETTIVO (MIN:SEC/KM)</Text>
+            <TextInput
+              style={styles.modalInput}
+              value={editTargetPace}
+              onChangeText={setEditTargetPace}
+              placeholder="es. 4:30"
+              placeholderTextColor={COLORS.textMuted}
+            />
+
+            <Text style={styles.modalLabel}>TEMPO OBIETTIVO</Text>
+            <TextInput
+              style={styles.modalInput}
+              value={editTargetTime}
+              onChangeText={setEditTargetTime}
+              placeholder="es. 1:35:00"
+              placeholderTextColor={COLORS.textMuted}
+            />
+
+            <Text style={styles.modalLabel}>LIVELLO</Text>
+            <View style={{ flexDirection: 'row', gap: SPACING.sm, marginBottom: SPACING.md }}>
+              {['principiante', 'intermedio', 'avanzato'].map(lev => (
+                <TouchableOpacity
+                  key={lev}
+                  onPress={() => setEditLevel(lev)}
+                  style={{
+                    flex: 1, paddingVertical: SPACING.sm, borderRadius: BORDER_RADIUS.md,
+                    backgroundColor: editLevel === lev ? COLORS.lime + '30' : COLORS.inputBg,
+                    borderWidth: 1, borderColor: editLevel === lev ? COLORS.lime : COLORS.cardBorder,
+                    alignItems: 'center',
+                  }}
+                >
+                  <Text style={{
+                    fontSize: FONT_SIZES.xs, fontWeight: '700',
+                    color: editLevel === lev ? COLORS.lime : COLORS.textMuted,
+                    textTransform: 'uppercase',
+                  }}>{lev}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+
             <View style={styles.modalButtons}>
               <TouchableOpacity testID="cancel-edit-btn" style={styles.modalCancelBtn} onPress={() => setEditModal(false)}>
                 <Text style={styles.modalCancelText}>ANNULLA</Text>
@@ -618,6 +737,7 @@ export default function ProfiloScreen() {
               </TouchableOpacity>
             </View>
           </View>
+          </ScrollView>
         </View>
       </Modal>
 

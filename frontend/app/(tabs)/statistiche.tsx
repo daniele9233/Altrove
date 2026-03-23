@@ -45,15 +45,23 @@ export default function StatisticheScreen() {
   if (error || !data) {
     return (
       <SafeAreaView style={styles.container}>
-        <View style={styles.center}>
-          <Ionicons name="cloud-offline" size={48} color={COLORS.textMuted} />
-          <Text style={{ color: COLORS.textSecondary, fontSize: FONT_SIZES.body, marginTop: SPACING.md, textAlign: 'center', paddingHorizontal: SPACING.xxl }}>
-            {error || 'Impossibile caricare le statistiche'}
+        <ScrollView contentContainerStyle={{ flexGrow: 1, justifyContent: 'center', alignItems: 'center', padding: SPACING.xxl }}>
+          <Ionicons name="analytics-outline" size={64} color={COLORS.textMuted} />
+          <Text style={{ color: COLORS.text, fontSize: FONT_SIZES.xl, fontWeight: '800', marginTop: SPACING.lg, textAlign: 'center' }}>
+            Nessun dato disponibile
           </Text>
-          <TouchableOpacity onPress={() => { setLoading(true); loadData(); }} style={{ marginTop: SPACING.lg, backgroundColor: COLORS.lime, paddingHorizontal: SPACING.xl, paddingVertical: SPACING.md, borderRadius: BORDER_RADIUS.full }}>
+          <Text style={{ color: COLORS.textSecondary, fontSize: FONT_SIZES.body, marginTop: SPACING.md, textAlign: 'center', paddingHorizontal: SPACING.xxl, lineHeight: 22 }}>
+            {error?.includes('500') || error?.includes('Error')
+              ? 'Registra la tua prima corsa o sincronizza Strava per vedere le statistiche.'
+              : error || 'Registra la tua prima corsa per vedere le statistiche.'}
+          </Text>
+          <TouchableOpacity onPress={() => { setLoading(true); loadData(); }} style={{ marginTop: SPACING.xxl, backgroundColor: COLORS.lime, paddingHorizontal: SPACING.xxl, paddingVertical: SPACING.md, borderRadius: BORDER_RADIUS.full }}>
             <Text style={{ color: COLORS.limeDark, fontWeight: '700', fontSize: FONT_SIZES.sm }}>RIPROVA</Text>
           </TouchableOpacity>
-        </View>
+          <TouchableOpacity onPress={() => router.back()} style={{ marginTop: SPACING.md, paddingHorizontal: SPACING.xxl, paddingVertical: SPACING.md }}>
+            <Text style={{ color: COLORS.textMuted, fontWeight: '600', fontSize: FONT_SIZES.sm }}>TORNA INDIETRO</Text>
+          </TouchableOpacity>
+        </ScrollView>
       </SafeAreaView>
     );
   }
