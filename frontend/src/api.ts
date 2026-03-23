@@ -1,4 +1,4 @@
-const BACKEND_URL = process.env.EXPO_PUBLIC_BACKEND_URL || 'https://corralejo-backend.onrender.com';
+const BACKEND_URL = process.env.EXPO_PUBLIC_BACKEND_URL || 'https://dani-backend-ea0s.onrender.com';
 
 async function apiFetch(path: string, options?: RequestInit) {
   const url = `${BACKEND_URL}/api${path}`;
@@ -27,6 +27,7 @@ export const api = {
       method: 'PATCH',
       body: JSON.stringify({ week_id: weekId, session_index: sessionIndex, completed }),
     }),
+  generatePlan: () => apiFetch('/generate-plan', { method: 'POST' }),
   adaptTrainingPlan: () => apiFetch('/training-plan/adapt', { method: 'POST' }),
   getAdaptationStatus: () => apiFetch('/training-plan/adaptation-status'),
   getRuns: () => apiFetch('/runs'),
@@ -39,8 +40,11 @@ export const api = {
   getSupplements: () => apiFetch('/supplements'),
   getExercises: () => apiFetch('/exercises'),
   getProfile: () => apiFetch('/profile'),
-  updateProfile: (data: { age?: number; weight_kg?: number; max_hr?: number; max_weekly_km?: number }) =>
-    apiFetch('/profile', { method: 'PATCH', body: JSON.stringify(data) }),
+  updateProfile: (data: {
+    name?: string; age?: number; weight_kg?: number; height_cm?: number;
+    max_hr?: number; max_weekly_km?: number; race_goal?: string; race_date?: string;
+    target_pace?: string; target_time?: string; level?: string; started_running?: string;
+  }) => apiFetch('/profile', { method: 'PATCH', body: JSON.stringify(data) }),
   getWeeklyHistory: () => apiFetch('/weekly-history'),
   getMedals: () => apiFetch('/medals'),
   getAnalytics: () => apiFetch('/analytics'),

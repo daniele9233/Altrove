@@ -30,7 +30,7 @@ app = FastAPI()
 
 @app.get("/")
 async def root():
-    return {"status": "ok", "app": "Corralejo 2026"}
+    return {"status": "ok", "app": "Altrove"}
 
 api_router = APIRouter(prefix="/api")
 
@@ -157,9 +157,9 @@ def _generate_enhanced_analysis(run, planned_session, planned_week, profile=None
     interval_secs = _pace_to_seconds(interval_pace)
     marathon_secs = _pace_to_seconds(marathon_pace)
 
-    # Target pace for half marathon
-    target_pace = "4:30"
-    target_secs = _pace_to_seconds(target_pace)
+    # Target pace from user profile (dynamic)
+    target_pace = profile.get("target_pace", "") if profile else ""
+    target_secs = _pace_to_seconds(target_pace) if target_pace else 0
 
     # Determine effort type
     effort_type = "medio aerobico"
@@ -206,12 +206,15 @@ def _generate_enhanced_analysis(run, planned_session, planned_week, profile=None
     # HR assessment
     hr_too_high_for_easy = avg_hr and hr_pct > 82 and effort_type == "easy"
 
-    # Calculate weeks to race
+    # Calculate weeks to race (from user profile)
     from datetime import date as date_cls
+    weeks_to_race = 0
     try:
-        race_date = date_cls(2026, 12, 12)
-        today = date_cls.today()
-        weeks_to_race = max(0, (race_date - today).days // 7)
+        race_date_str = profile.get("race_date") if profile else None
+        if race_date_str:
+            race_date = date_cls.fromisoformat(race_date_str)
+            today = date_cls.today()
+            weeks_to_race = max(0, (race_date - today).days // 7)
     except:
         weeks_to_race = 0
 
@@ -321,12 +324,15 @@ def _generate_enhanced_analysis(run, planned_session, planned_week, profile=None
 
     # SECTION 6: Reality check
     lines.append("🔥 Tradotto in realtà")
+    race_goal = profile.get("race_goal", "la tua gara") if profile else "la tua gara"
+    target_time_str = profile.get("target_time", "") if profile else ""
     if est_10k_min > 0:
         lines.append(f"Ad oggi sei circa a livello:")
         lines.append(f"👉 10 km in ~{est_10k_str} (stimato dal passo attuale)")
         lines.append(f"👉 Mezza maratona in ~{est_half_str} (proiezione)")
-    lines.append("Per raggiungere il tuo obiettivo devi arrivare a:")
-    lines.append("👉 Mezza maratona in ~1h35")
+    if target_time_str:
+        lines.append(f"Per raggiungere il tuo obiettivo devi arrivare a:")
+        lines.append(f"👉 {race_goal} in ~{target_time_str}")
     if weeks_to_race > 0:
         if weeks_to_race > 30:
             lines.append(f"Hai {weeks_to_race} settimane davanti — è un obiettivo assolutamente fattibile con costanza.")
@@ -338,7 +344,7 @@ def _generate_enhanced_analysis(run, planned_session, planned_week, profile=None
 
     # SECTION 7: Technical advice
     lines.append("🧩 Cosa ti manca (analisi tecnica)")
-    lines.append("Per correre a 4:30/km sulla mezza ti servono 3 cose:")
+    lines.append(f"Per raggiungere il tuo obiettivo{' di ' + target_pace + '/km' if target_pace else ''} ti servono 3 cose:")
     lines.append("")
     lines.append("1. Resistenza aerobica (fondamentale)")
     lines.append("➡️ Devi reggere sforzi lunghi senza salire troppo di cuore")
@@ -355,7 +361,7 @@ def _generate_enhanced_analysis(run, planned_session, planned_week, profile=None
         lines.append("✔️ Allenamenti tipo: 3x10 min a passo soglia")
     lines.append("")
     lines.append("3. Velocità specifica")
-    lines.append("➡️ Devi abituare le gambe a 4:30/km")
+    lines.append(f"➡️ Devi abituare le gambe al passo gara{' (' + target_pace + '/km)' if target_pace else ''}")
     if interval_pace:
         lines.append(f"✔️ Ripetute: 6x1000 a {interval_pace}/km")
     else:
@@ -407,7 +413,7 @@ def _generate_enhanced_analysis(run, planned_session, planned_week, profile=None
     lines.append(f"Voto: {rating}/10 ({rating_labels.get(rating, 'buona')})")
     if effort_type in ("easy", "moderate"):
         lines.append("✔️ Ottima per costruire la base aerobica")
-        lines.append("❌ Non abbastanza specifica per l'obiettivo 4:30/km")
+        lines.append(f"❌ Non abbastanza specifica per l'obiettivo{' ' + target_pace + '/km' if target_pace else ''}")
     elif effort_type == "tempo":
         lines.append("✔️ Lavoro specifico sulla soglia")
         lines.append("✔️ Direttamente utile per l'obiettivo")
@@ -585,10 +591,18 @@ class SessionCompleteRequest(BaseModel):
     completed: bool
 
 class ProfileUpdateRequest(BaseModel):
+    name: Optional[str] = None
     age: Optional[int] = None
     weight_kg: Optional[float] = None
+    height_cm: Optional[int] = None
     max_hr: Optional[int] = None
     max_weekly_km: Optional[int] = None
+    race_goal: Optional[str] = None
+    race_date: Optional[str] = None
+    target_pace: Optional[str] = None
+    target_time: Optional[str] = None
+    level: Optional[str] = None  # principiante / intermedio / avanzato
+    started_running: Optional[str] = None
 
 # ====== HELPER FUNCTIONS ======
 
@@ -609,24 +623,89 @@ def get_monday(d):
 
 DAYS_IT = ["Lunedì", "Martedì", "Mercoledì", "Giovedì", "Venerdì", "Sabato", "Domenica"]
 
-def generate_training_plan(vdot_paces=None):
-    """Generate complete training plan from March 23, 2026 to December 12, 2026.
-    Pre-March 22 runs (incl. Roma relay 10km) are synced via Strava.
-    If vdot_paces dict is provided, session paces are derived from VDOT instead of hardcoded."""
-    race_date = date(2026, 12, 12)
-    start_date = date(2026, 3, 23)
+def generate_training_plan(vdot_paces=None, profile=None):
+    """Generate a dynamic training plan based on user profile.
 
-    phases = [
-        {"name": "Ripresa", "weeks": 4, "km_range": (25, 35), "desc": "Ritorno graduale post-staffetta Roma 10km"},
-        {"name": "Base Aerobica", "weeks": 8, "km_range": (35, 45), "desc": "Costruzione della base aerobica"},
-        {"name": "Sviluppo", "weeks": 8, "km_range": (42, 52), "desc": "Sviluppo della resistenza specifica"},
-        {"name": "Preparazione Specifica", "weeks": 8, "km_range": (48, 58), "desc": "Lavori specifici per la mezza maratona"},
-        {"name": "Picco", "weeks": 7, "km_range": (50, 57), "desc": "Fase di picco e rifinitura"},
-        {"name": "Tapering", "weeks": 3, "km_range": (40, 25), "desc": "Scarico pre-gara"},
+    The plan adapts to:
+    - race_date: from user profile (when is the race?)
+    - start_date: today or custom start
+    - total weeks: calculated from start → race_date
+    - max_weekly_km: from user profile (caps volume)
+    - level: principiante/intermedio/avanzato (scales intensity)
+    - vdot_paces: if available, overrides hardcoded paces
+
+    The 6 phases of periodization are distributed proportionally
+    across the available weeks. Minimum 8 weeks required.
+    """
+    if not profile:
+        profile = {}
+
+    # --- Determine dates ---
+    race_date_str = profile.get("race_date")
+    if not race_date_str:
+        logger.warning("generate_training_plan: no race_date in profile, cannot generate plan")
+        return []
+
+    try:
+        race_date_obj = date.fromisoformat(race_date_str)
+    except:
+        logger.error(f"generate_training_plan: invalid race_date '{race_date_str}'")
+        return []
+
+    start_date = get_monday(date.today())  # Start from this Monday
+    total_days = (race_date_obj - start_date).days
+    total_weeks = max(total_days // 7, 0)
+
+    if total_weeks < 8:
+        logger.warning(f"generate_training_plan: only {total_weeks} weeks available, minimum 8 required")
+        if total_weeks < 4:
+            return []
+
+    # --- User parameters ---
+    max_km = profile.get("max_weekly_km") or 50
+    level = profile.get("level", "intermedio")
+
+    # Scale km ranges based on level
+    level_factor = {"principiante": 0.7, "intermedio": 1.0, "avanzato": 1.2}.get(level, 1.0)
+
+    # --- Phase distribution (proportional to available weeks) ---
+    # The 6 phases with relative proportions (total = 38 reference)
+    phase_defs = [
+        {"name": "Ripresa", "pct": 0.10, "km_base": (20, 30), "desc": "Ripresa graduale e adattamento"},
+        {"name": "Base Aerobica", "pct": 0.22, "km_base": (30, 40), "desc": "Costruzione della base aerobica"},
+        {"name": "Sviluppo", "pct": 0.22, "km_base": (38, 48), "desc": "Sviluppo della resistenza specifica"},
+        {"name": "Preparazione Specifica", "pct": 0.22, "km_base": (45, 55), "desc": "Lavori specifici per la gara obiettivo"},
+        {"name": "Picco", "pct": 0.16, "km_base": (48, 55), "desc": "Fase di picco e rifinitura"},
+        {"name": "Tapering", "pct": 0.08, "km_base": (38, 22), "desc": "Scarico pre-gara"},
     ]
-    
-    # Recovery weeks every 4 weeks - reduce km by 30-40%
-    recovery_weeks = {4, 8, 12, 16, 20, 24, 28, 32, 36}
+
+    # Distribute weeks proportionally (minimum 1 week per phase except Tapering=2-3)
+    phases = []
+    remaining_weeks = total_weeks
+    for i, pd in enumerate(phase_defs):
+        if i == len(phase_defs) - 1:
+            # Tapering gets remaining (min 2, max 3)
+            w = min(max(remaining_weeks, 2), 3)
+        else:
+            w = max(1, round(total_weeks * pd["pct"]))
+            w = min(w, remaining_weeks - (len(phase_defs) - i - 1))  # Ensure remaining phases get at least 1
+
+        # Scale km by level factor and cap to max_weekly_km
+        km_start = min(round(pd["km_base"][0] * level_factor, 1), max_km)
+        km_end = min(round(pd["km_base"][1] * level_factor, 1), max_km)
+        if pd["name"] == "Tapering":
+            km_end = round(km_start * 0.55, 1)  # Tapering reduces to ~55%
+
+        phases.append({
+            "name": pd["name"],
+            "weeks": w,
+            "km_range": (km_start, km_end),
+            "desc": pd["desc"],
+        })
+        remaining_weeks -= w
+
+    # Build recovery week set (every 4 weeks)
+    recovery_weeks = set(range(4, total_weeks + 1, 4))
 
     weeks = []
     current_date = start_date
@@ -637,13 +716,15 @@ def generate_training_plan(vdot_paces=None):
         for i in range(phase["weeks"]):
             progress = i / max(phase["weeks"] - 1, 1)
             target_km = round(km_start + (km_end - km_start) * progress, 1)
+            # Cap to user's max_weekly_km
+            target_km = min(target_km, max_km)
             week_start = current_date
             week_end = current_date + timedelta(days=6)
-            
+
             # Apply recovery week reduction
             is_recovery = week_num in recovery_weeks
             if is_recovery and phase["name"] not in ["Tapering", "Ripresa"]:
-                target_km = round(target_km * 0.65, 1)  # 35% reduction
+                target_km = round(target_km * 0.65, 1)
 
             sessions = generate_week_sessions(phase["name"], week_num, target_km, week_start, i, phase["weeks"], is_recovery, paces=vdot_paces)
 
@@ -667,6 +748,7 @@ def generate_training_plan(vdot_paces=None):
             current_date += timedelta(days=7)
             week_num += 1
 
+    logger.info(f"Training plan generated: {len(weeks)} weeks, level={level}, max_km={max_km}, race={race_date_str}")
     return weeks
 
 def generate_week_sessions(phase, week_num, target_km, week_start, phase_week, total_phase_weeks, is_recovery=False, paces=None):
@@ -714,7 +796,7 @@ def generate_week_sessions(phase, week_num, target_km, week_start, phase_week, t
             {"day": 3, "type": "ripetute_salita", "title": "Ripetute Salita", "desc": "2km riscaldamento + 10x45sec salita forte (rec discesa) + 2km defaticamento. Forza esplosiva!", "km": round(target_km * 0.15, 1), "pace": "max", "dur": None},
             {"day": 4, "type": "riposo", "title": "Riposo", "desc": "Recupero completo + stretching", "km": 0, "pace": None, "dur": 0},
             {"day": 5, "type": "corsa_lenta", "title": "Corsa Facile", "desc": "Corsa facile + 8 allunghi", "km": round(target_km * 0.11, 1), "pace": "5:15", "dur": None},
-            {"day": 6, "type": "lungo", "title": "Lungo Specifico 22km", "desc": f"Lungo {long_km}km con ultimi 5km a ritmo gara 4:30. Simulazione mezza maratona!", "km": long_km, "pace": "5:00", "dur": None},
+            {"day": 6, "type": "lungo", "title": f"Lungo Specifico {long_km}km", "desc": f"Lungo {long_km}km con ultimi 5km a ritmo gara. Simulazione pre-gara!", "km": long_km, "pace": "5:00", "dur": None},
         ]
     elif phase == "Picco":
         # Lungo fino a 24km, massima specificità
@@ -726,7 +808,7 @@ def generate_week_sessions(phase, week_num, target_km, week_start, phase_week, t
             {"day": 3, "type": "ripetute_salita", "title": "Ripetute Salita Brevi", "desc": "2km riscaldamento + 6x30sec salita esplosiva (rec discesa) + 2km defaticamento", "km": round(target_km * 0.12, 1), "pace": "max", "dur": None},
             {"day": 4, "type": "rinforzo", "title": "Rinforzo Leggero", "desc": "Rinforzo muscolare mantenimento", "km": 0, "pace": None, "dur": 35},
             {"day": 5, "type": "corsa_lenta", "title": "Corsa Pre-Lungo", "desc": "Corsa facile + allunghi", "km": round(target_km * 0.10, 1), "pace": "5:15", "dur": None},
-            {"day": 6, "type": "lungo", "title": "Lungo di Picco 24km", "desc": f"Lungo {long_km}km: ultimi 8km a ritmo gara 4:30. Ultimo test prima del tapering!", "km": long_km, "pace": "4:55", "dur": None},
+            {"day": 6, "type": "lungo", "title": f"Lungo di Picco {long_km}km", "desc": f"Lungo {long_km}km: ultimi 8km a ritmo gara. Ultimo test prima del tapering!", "km": long_km, "pace": "4:55", "dur": None},
         ]
     else:  # Tapering
         progress = phase_week / max(total_phase_weeks - 1, 1)
@@ -766,164 +848,51 @@ def generate_week_sessions(phase, week_num, target_km, week_start, phase_week, t
 
 def get_week_notes(phase, week_num, phase_week):
     notes_map = {
-        "Ripresa": "Ascolta il tuo corpo. Se senti dolore al tendine, riduci immediatamente. Il riscaldamento pre-corsa è fondamentale.",
-        "Base Aerobica": "Mantieni la maggior parte delle corse in zona aerobica (FC <155bpm). La pazienza ora paga dopo.",
+        "Ripresa": "Ascolta il tuo corpo. Se senti dolore, riduci immediatamente. Il riscaldamento pre-corsa è fondamentale.",
+        "Base Aerobica": "Mantieni la maggior parte delle corse in zona aerobica. La pazienza ora paga dopo.",
         "Sviluppo": "Iniziamo ad alzare l'intensità. Assicurati di dormire almeno 7-8 ore.",
-        "Preparazione Specifica": "Lavori a ritmo gara. Il corpo si sta adattando al target 4:30/km.",
+        "Preparazione Specifica": "Lavori a ritmo gara. Il corpo si sta adattando al passo obiettivo.",
         "Picco": "Settimane decisive. Massima concentrazione su recupero e alimentazione.",
         "Tapering": "Riduci il volume ma mantieni l'intensità. Fidati dell'allenamento fatto!"
     }
     return notes_map.get(phase, "")
 
 def get_weekly_history_data():
-    data = [
-        ("2025-02-17", "2025-02-23", 20.05, 2025), ("2025-02-24", "2025-03-02", 35.66, 2025),
-        ("2025-03-03", "2025-03-09", 32.69, 2025), ("2025-03-10", "2025-03-16", 64.50, 2025),
-        ("2025-03-17", "2025-03-23", 42.12, 2025), ("2025-03-24", "2025-03-30", 26.12, 2025),
-        ("2025-03-31", "2025-04-06", 65.40, 2025), ("2025-04-07", "2025-04-13", 52.09, 2025),
-        ("2025-04-14", "2025-04-20", 23.13, 2025), ("2025-04-21", "2025-04-27", 28.09, 2025),
-        ("2025-04-28", "2025-05-04", 20.80, 2025), ("2025-05-05", "2025-05-11", 45.35, 2025),
-        ("2025-05-12", "2025-05-18", 50.09, 2025), ("2025-05-19", "2025-05-25", 26.37, 2025),
-        ("2025-05-26", "2025-06-01", 27.39, 2025), ("2025-06-02", "2025-06-08", 39.98, 2025),
-        ("2025-06-09", "2025-06-15", 43.79, 2025), ("2025-06-16", "2025-06-22", 36.93, 2025),
-        ("2025-06-23", "2025-06-29", 20.88, 2025), ("2025-06-30", "2025-07-06", 36.83, 2025),
-        ("2025-07-07", "2025-07-13", 38.89, 2025), ("2025-07-14", "2025-07-20", 11.29, 2025),
-        ("2025-07-21", "2025-07-27", 37.48, 2025), ("2025-07-28", "2025-08-03", 33.01, 2025),
-        ("2025-08-04", "2025-08-10", 38.78, 2025), ("2025-08-11", "2025-08-17", 43.25, 2025),
-        ("2025-08-18", "2025-08-24", 30.64, 2025), ("2025-08-25", "2025-08-31", 29.97, 2025),
-        ("2025-09-01", "2025-09-07", 12.02, 2025), ("2025-09-08", "2025-09-14", 0.0, 2025),
-        ("2025-09-15", "2025-09-21", 0.0, 2025), ("2025-09-22", "2025-09-28", 14.56, 2025),
-        ("2025-09-29", "2025-10-05", 36.02, 2025), ("2025-10-06", "2025-10-12", 39.05, 2025),
-        ("2025-10-13", "2025-10-19", 42.85, 2025), ("2025-10-20", "2025-10-26", 31.54, 2025),
-        ("2025-10-27", "2025-11-02", 52.06, 2025), ("2025-11-03", "2025-11-09", 8.0, 2025),
-        ("2025-11-10", "2025-11-16", 20.09, 2025), ("2025-11-17", "2025-11-23", 30.68, 2025),
-        ("2025-11-24", "2025-11-30", 16.19, 2025),
-        ("2026-01-26", "2026-02-01", 2.0, 2026), ("2026-02-02", "2026-02-08", 10.03, 2026),
-        ("2026-02-09", "2026-02-15", 13.02, 2026), ("2026-02-16", "2026-02-22", 0.0, 2026),
-        ("2026-02-23", "2026-03-01", 13.02, 2026),
-        ("2026-03-02", "2026-03-08", 21.03, 2026), ("2026-03-09", "2026-03-15", 8.19, 2026),
-    ]
-    result = []
-    for i, (ws, we, km, yr) in enumerate(data):
-        result.append({"id": make_id(), "week_start": ws, "week_end": we, "total_km": km, "year": yr, "week_number": i + 1})
-    return result
+    """Empty weekly history — populated automatically from Strava sync."""
+    return []
 
 def get_seed_runs():
     """No seed runs — only Strava-imported runs are used."""
     return []
 
 def get_supplements():
-    return [
-        {"id": make_id(), "name": "Collagene GELITA (Tendoforte®, Fortigel®, Verisol®)", "dosage": "Collagene puro idrolizzato in polvere", "timing": "50 minuti prima della corsa", "purpose": "Salute tendini e articolazioni, recupero tessuto connettivo", "active": True, "category": "tendini"},
-        {"id": make_id(), "name": "Vitamina C", "dosage": "500-1000mg", "timing": "Insieme al collagene, 50 min pre-corsa", "purpose": "Potenzia la sintesi del collagene, antiossidante", "active": True, "category": "vitamine"},
-        {"id": make_id(), "name": "Creatina Monoidrato", "dosage": "3-5g/giorno", "timing": "Post-allenamento con pasto", "purpose": "Migliora potenza muscolare, recupero, idratazione cellulare. Studi mostrano benefici anche per runner di endurance.", "active": True, "category": "performance"},
-        {"id": make_id(), "name": "Magnesio", "dosage": "400mg", "timing": "Sera, prima di dormire", "purpose": "Prevenzione crampi, qualità del sonno, recupero muscolare", "active": True, "category": "minerali"},
-        {"id": make_id(), "name": "Omega-3 (EPA/DHA)", "dosage": "2-3g/giorno", "timing": "Con pasto principale", "purpose": "Anti-infiammatorio, salute cardiovascolare", "active": True, "category": "anti_infiammatorio"},
-        {"id": make_id(), "name": "Vitamina D3", "dosage": "2000-4000 UI", "timing": "Mattina con colazione", "purpose": "Salute ossa, sistema immunitario, prestazione muscolare", "active": True, "category": "vitamine"},
-    ]
+    """Empty supplements — user adds their own."""
+    return []
 
 def get_exercises():
-    return [
-        {"id": make_id(), "name": "Calf Raise Monopodalico", "sets": 4, "reps": 12, "tempo": "3s su / 4s giù", "rest": "60s", "category": "polpaccio", "priority": "alta", "notes": "Fondamentale per il tendine d'Achille. Eseguire con controllo eccentrico."},
-        {"id": make_id(), "name": "Isometria Polpaccio", "sets": 5, "reps": 1, "tempo": "45s tenuta", "rest": "60s", "category": "polpaccio", "priority": "alta", "notes": "Tenuta isometrica su un gradino. Fondamentale per la tendinopatia."},
-        {"id": make_id(), "name": "Calf Ginocchio Flesso (Soleo)", "sets": 3, "reps": 15, "tempo": "3s su / 3s giù", "rest": "60s", "category": "polpaccio", "priority": "alta", "notes": "Lavora il soleo. Ginocchio leggermente flesso durante l'esecuzione."},
-        {"id": make_id(), "name": "Squat Corpo Libero", "sets": 3, "reps": 20, "tempo": "Controllato", "rest": "60s", "category": "gambe", "priority": "media", "notes": "Squat completo, schiena dritta, peso sui talloni."},
-        {"id": make_id(), "name": "Clamshell", "sets": 3, "reps": 20, "tempo": "2s su / 2s giù", "rest": "45s", "category": "anche", "priority": "media", "notes": "Rinforzo gluteo medio. Usa elastico per maggiore resistenza."},
-        {"id": make_id(), "name": "Plank Frontale", "sets": 3, "reps": 1, "tempo": "45-60s tenuta", "rest": "45s", "category": "core", "priority": "media", "notes": "Core stability fondamentale per la postura in corsa."},
-        {"id": make_id(), "name": "Single Leg Deadlift", "sets": 3, "reps": 12, "tempo": "3s discesa / 2s salita", "rest": "60s", "category": "posteriore", "priority": "media", "notes": "Equilibrio e rinforzo catena posteriore."},
-        {"id": make_id(), "name": "Step-Up", "sets": 3, "reps": 15, "tempo": "Controllato", "rest": "60s", "category": "gambe", "priority": "media", "notes": "Su un gradino di 30-40cm. Simula la spinta in corsa."},
-    ]
+    """Empty exercises — user adds their own."""
+    return []
 
 def get_profile():
+    """Default empty profile — user fills everything via onboarding."""
     return {
         "id": make_id(),
-        "name": "Runner",
-        "age": 40,
-        "weight_kg": 68,
-        "max_hr": 179,
-        "started_running": "2025-02-01",
-        "total_km": 1400,
-        "race_goal": "Mezza Maratona Fuerteventura - Corralejo",
-        "race_date": "2026-12-12",
-        "target_pace": "4:30",
-        "target_time": "1:35:00",
-        "pbs": {
-            "4km": {"time": "16:08", "date": "2025-09-20", "pace": "4:01"},
-            "6km": {"time": "26:00", "date": "2025-11-21", "pace": "4:20"},
-            "10km": {"time": "45:31", "date": "2025-10-15", "pace": "4:33"},
-            "15km": {"time": "1:13:38", "date": "2025-10-28", "pace": "4:54"}
-        },
-        "medals": {
-            "4km": {
-                "targets": {
-                    "warmup": {"time": "20:00", "pace": "5:00"},
-                    "bronzo": {"time": "18:00", "pace": "4:30"},
-                    "argento": {"time": "17:00", "pace": "4:15"},
-                    "oro": {"time": "16:00", "pace": "4:00"},
-                    "platino": {"time": "15:20", "pace": "3:50"},
-                    "elite": {"time": "14:40", "pace": "3:40"}
-                },
-                "current_best": "16:08",
-                "status": "argento"
-            },
-            "6km": {
-                "targets": {
-                    "warmup": {"time": "33:00", "pace": "5:30"},
-                    "bronzo": {"time": "30:00", "pace": "5:00"},
-                    "argento": {"time": "27:00", "pace": "4:30"},
-                    "oro": {"time": "25:00", "pace": "4:10"},
-                    "platino": {"time": "23:00", "pace": "3:50"},
-                    "elite": {"time": "21:30", "pace": "3:35"}
-                },
-                "current_best": "26:00",
-                "status": "argento"
-            },
-            "10km": {
-                "targets": {
-                    "warmup": {"time": "55:00", "pace": "5:30"},
-                    "bronzo": {"time": "50:00", "pace": "5:00"},
-                    "argento": {"time": "47:00", "pace": "4:42"},
-                    "oro": {"time": "43:00", "pace": "4:18"},
-                    "platino": {"time": "40:00", "pace": "4:00"},
-                    "elite": {"time": "37:00", "pace": "3:42"}
-                },
-                "current_best": "45:31",
-                "status": "argento"
-            },
-            "15km": {
-                "targets": {
-                    "warmup": {"time": "1:22:30", "pace": "5:30"},
-                    "bronzo": {"time": "1:15:00", "pace": "5:00"},
-                    "argento": {"time": "1:15:00", "pace": "5:00"},
-                    "oro": {"time": "1:08:00", "pace": "4:32"},
-                    "platino": {"time": "1:02:30", "pace": "4:10"},
-                    "elite": {"time": "57:00", "pace": "3:48"}
-                },
-                "current_best": "1:13:38",
-                "status": "argento"
-            },
-            "21.1km": {
-                "targets": {
-                    "warmup": {"time": "2:00:00", "pace": "5:41"},
-                    "bronzo": {"time": "1:50:00", "pace": "5:12"},
-                    "argento": {"time": "1:42:00", "pace": "4:50"},
-                    "oro": {"time": "1:35:00", "pace": "4:30"},
-                    "platino": {"time": "1:28:00", "pace": "4:10"},
-                    "elite": {"time": "1:20:00", "pace": "3:48"}
-                },
-                "current_best": None,
-                "status": "locked"
-            }
-        },
-        "max_weekly_km": 57,
-        "injury": {
-            "type": "Tendinopatia inserzionale achillea destra",
-            "date": "2025-11-26",
-            "recovery_start": "2025-12-26",
-            "running_resumed": "2026-02-01",
-            "status": "In recupero - leggerissima rigidità mattutina (sparisce in 10s)",
-            "details": "Spessore tendine: 8mm -> 5mm (controlaterale 4mm). Calcificazione inserzionale ancora presente."
-        },
+        "name": "",
+        "age": None,
+        "weight_kg": None,
+        "height_cm": None,
+        "max_hr": None,
+        "started_running": None,
+        "total_km": 0,
+        "race_goal": "",
+        "race_date": None,
+        "target_pace": None,
+        "target_time": None,
+        "level": None,  # principiante / intermedio / avanzato
+        "pbs": {},
+        "medals": {},
+        "max_weekly_km": None,
+        "injury": None,
         "mouth_tape": {
             "recommendation": "Consigliato per allenamenti a bassa intensità",
             "benefits": "Studi scientifici mostrano: respirazione nasale migliora efficienza O2, riduce FC a parità di sforzo, migliora filtrazione aria. NON usare per ripetute/alta intensità.",
@@ -932,46 +901,21 @@ def get_profile():
     }
 
 def get_test_schedule():
-    return [
-        {"id": make_id(), "scheduled_date": "2026-04-20", "test_type": "6km_time_trial", "description": "Test 6km a sforzo massimale - Verifica ritorno alla forma", "completed": False},
-        {"id": make_id(), "scheduled_date": "2026-05-04", "test_type": "fc_max_test", "description": "Test FC Max - Rivalutazione frequenza cardiaca massima (8x400m con recupero)", "completed": False},
-        {"id": make_id(), "scheduled_date": "2026-06-01", "test_type": "10km_time_trial", "description": "Test 10km - Valutazione base aerobica", "completed": False},
-        {"id": make_id(), "scheduled_date": "2026-07-20", "test_type": "6km_time_trial", "description": "Test 6km - Verifica sviluppo velocità", "completed": False},
-        {"id": make_id(), "scheduled_date": "2026-09-07", "test_type": "15km_time_trial", "description": "Test 15km - Simulazione resistenza specifica", "completed": False},
-        {"id": make_id(), "scheduled_date": "2026-10-19", "test_type": "10km_time_trial", "description": "Test 10km - Verifica ritmo gara", "completed": False},
-        {"id": make_id(), "scheduled_date": "2026-11-22", "test_type": "6km_time_trial", "description": "Test 6km pre-gara - Ultima verifica", "completed": False},
-    ]
+    """Empty test schedule — generated dynamically based on user's race date."""
+    return []
 
-# ====== ENDPOINTS ======
+# ====== HELPER: calculate VDOT from profile PBs ======
 
-@api_router.get("/health")
-async def health_check():
-    """Health check endpoint for Render."""
-    return {"status": "ok"}
-
-
-@api_router.post("/seed")
-async def seed_data():
-    await db.profile.delete_many({})
-    await db.weekly_history.delete_many({})
-    await db.runs.delete_many({})
-    await db.training_plan.delete_many({})
-    await db.supplements.delete_many({})
-    await db.exercises.delete_many({})
-    await db.tests.delete_many({})
-    await db.test_schedule.delete_many({})
-    await db.ai_analyses.delete_many({})
-
-    await db.profile.insert_one(get_profile())
-    await db.weekly_history.insert_many(get_weekly_history_data())
-    # No seed runs — only Strava-imported runs are real data
-    # Use default VDOT from profile PBs for initial plan generation
+def _calculate_vdot_from_profile(profile_data):
+    """Calculate best VDOT and training paces from profile PBs."""
     vdot_paces = None
     best_vdot = None
-    profile = get_profile()
-    pbs = profile.get("pbs", {})
+    pbs = profile_data.get("pbs", {})
     for dist_str, pb_data in pbs.items():
-        dist_km = float(dist_str.replace("km", ""))
+        try:
+            dist_km = float(dist_str.replace("km", ""))
+        except:
+            continue
         time_str = pb_data.get("time", "")
         if ":" in time_str:
             parts = time_str.split(":")
@@ -984,22 +928,77 @@ async def seed_data():
                 best_vdot = vdot
     if best_vdot:
         vdot_paces = vdot_training_paces(best_vdot)
-        logger.info(f"Seed: VDOT {best_vdot} from PBs → paces {vdot_paces}")
+    return best_vdot, vdot_paces
 
-    plan = generate_training_plan(vdot_paces=vdot_paces)
+# ====== ENDPOINTS ======
+
+@api_router.get("/health")
+async def health_check():
+    """Health check endpoint for Render."""
+    return {"status": "ok"}
+
+
+@api_router.post("/generate-plan")
+async def generate_plan_endpoint():
+    """Generate (or regenerate) training plan based on current profile.
+
+    Requires at minimum: race_date in the profile.
+    Uses VDOT from PBs if available, level, and max_weekly_km.
+    Called after onboarding or when user changes race goal.
+    """
+    profile = await db.profile.find_one({}, {"_id": 0})
+    if not profile:
+        raise HTTPException(400, detail="Profilo non trovato. Completa prima l'onboarding.")
+
+    if not profile.get("race_date"):
+        raise HTTPException(400, detail="Data gara non impostata. Imposta un obiettivo gara nel profilo.")
+
+    # Calculate VDOT from PBs
+    best_vdot, vdot_paces = _calculate_vdot_from_profile(profile)
+
+    # Delete existing plan
+    await db.training_plan.delete_many({})
+
+    # Generate new plan
+    plan = generate_training_plan(vdot_paces=vdot_paces, profile=profile)
     if plan:
         await db.training_plan.insert_many(plan)
 
-    await db.supplements.insert_many(get_supplements())
-    await db.exercises.insert_many(get_exercises())
-    await db.test_schedule.insert_many(get_test_schedule())
-
     return {
         "status": "ok",
-        "message": "Dati inizializzati con successo",
+        "message": f"Piano generato: {len(plan)} settimane",
         "weeks": len(plan),
         "vdot": best_vdot,
         "vdot_paces": vdot_paces,
+        "level": profile.get("level", "intermedio"),
+        "race_date": profile.get("race_date"),
+        "max_weekly_km": profile.get("max_weekly_km"),
+    }
+
+
+@api_router.post("/seed")
+async def seed_data():
+    """Reset all data and create an empty profile.
+    The user must complete onboarding to populate profile and generate a plan."""
+    await db.profile.delete_many({})
+    await db.weekly_history.delete_many({})
+    await db.runs.delete_many({})
+    await db.training_plan.delete_many({})
+    await db.supplements.delete_many({})
+    await db.exercises.delete_many({})
+    await db.tests.delete_many({})
+    await db.test_schedule.delete_many({})
+    await db.ai_analyses.delete_many({})
+
+    # Only insert empty profile — everything else comes from onboarding + Strava
+    profile_data = get_profile()
+    await db.profile.insert_one(profile_data)
+
+    return {
+        "status": "ok",
+        "message": "Database resettato. Profilo vuoto creato. Completa l'onboarding per iniziare.",
+        "collections_cleared": ["profile", "weekly_history", "runs", "training_plan",
+                                 "supplements", "exercises", "tests", "test_schedule", "ai_analyses"],
     }
 
 @api_router.get("/dashboard")
@@ -1046,8 +1045,16 @@ async def get_dashboard():
         })
     weekly_history.reverse()
 
-    race_date = date(2026, 12, 12)
-    days_to_race = (race_date - today).days
+    # Race date from profile (dynamic)
+    race_date_str = profile.get("race_date") if profile else None
+    if race_date_str:
+        try:
+            race_date = date.fromisoformat(race_date_str)
+            days_to_race = (race_date - today).days
+        except:
+            days_to_race = 0
+    else:
+        days_to_race = 0
 
     next_test = await db.test_schedule.find_one(
         {"scheduled_date": {"$gte": today_str}, "completed": False},
@@ -1390,25 +1397,30 @@ async def analyze_run(req: AIAnalyzeRequest):
     vdot_val, _ = await calculate_current_vdot()
     vdot_paces = vdot_training_paces(vdot_val) if vdot_val else None
 
-    # ── Build system message from actual profile ──
+    # ── Build system message DYNAMICALLY from actual profile ──
     p = profile or {}
-    p_name = p.get("name", "Atleta")
-    p_age = p.get("age", "N/D")
-    p_weight = p.get("weight_kg", "N/D")
-    p_max_hr = p.get("max_hr", "N/D")
-    p_target_pace = p.get("target_pace", "4:30")
-    p_target_time = p.get("target_time", "1:35:00")
+    p_name = p.get("name") or "Atleta"
+    p_age = p.get("age") or "N/D"
+    p_weight = p.get("weight_kg") or "N/D"
+    p_height = p.get("height_cm") or "N/D"
+    p_max_hr = p.get("max_hr") or "N/D"
+    p_target_pace = p.get("target_pace") or ""
+    p_target_time = p.get("target_time") or ""
+    p_race_goal = p.get("race_goal") or ""
+    p_level = p.get("level") or "intermedio"
 
+    # Injury block — only if user filled it in
     injury_block = ""
     inj = p.get("injury")
-    if inj:
+    if inj and inj.get("type"):
         injury_block = (
-            f"\n- INFORTUNIO: {inj.get('type', 'N/D')} ({inj.get('date', 'N/D')}), "
+            f"\n- STORICO INFORTUNI: {inj.get('type', 'N/D')} ({inj.get('date', 'N/D')}), "
             f"stato: {inj.get('status', 'N/D')}"
             f"\n- Ripresa corsa: {inj.get('running_resumed', 'N/D')}"
             f"\n- Dettagli: {inj.get('details', 'N/D')}"
         )
 
+    # PBs block
     pbs_block = ""
     pbs = p.get("pbs")
     if pbs:
@@ -1416,6 +1428,7 @@ async def analyze_run(req: AIAnalyzeRequest):
         for dist, data in pbs.items():
             pbs_block += f"\n- {dist}: {data.get('time', 'N/D')} ({data.get('pace', 'N/D')}/km)"
 
+    # VDOT block
     vdot_block = ""
     if vdot_val:
         vdot_block = f"\n\nVDOT ATTUALE: {vdot_val}"
@@ -1428,71 +1441,81 @@ async def analyze_run(req: AIAnalyzeRequest):
                 f"Repetition {vdot_paces.get('repetition')}"
             )
 
-    # Calculate weeks to race
+    # Calculate weeks to race (dynamic)
     from datetime import date as date_cls
-    race_date = date_cls(2026, 12, 12)
-    weeks_to_race = max(0, (race_date - date.today()).days // 7)
+    weeks_to_race = 0
+    race_date_str = p.get("race_date")
+    if race_date_str:
+        try:
+            race_date_obj = date_cls.fromisoformat(race_date_str)
+            weeks_to_race = max(0, (race_date_obj - date.today()).days // 7)
+        except:
+            pass
 
-    system_msg = f"""Sei Renato Canova — allenatore italiano di fama mondiale di mezzofondo e maratona.
-Parli in italiano, tono diretto e schietto come un vero coach. Non sei un chatbot, sei un allenatore.
-Ogni tua analisi deve essere UNICA — mai template, mai risposte generiche.
+    # Build the objective block dynamically
+    obiettivo_block = ""
+    if p_race_goal or p_target_pace or p_target_time:
+        obiettivo_block = f"\n\nOBIETTIVO GARA:"
+        if p_race_goal:
+            obiettivo_block += f"\n- Gara: {p_race_goal}"
+        if race_date_str:
+            obiettivo_block += f"\n- Data: {race_date_str}"
+        if weeks_to_race > 0:
+            obiettivo_block += f"\n- Mancano {weeks_to_race} settimane"
+        if p_target_pace:
+            obiettivo_block += f"\n- Passo obiettivo: {p_target_pace}/km"
+        if p_target_time:
+            obiettivo_block += f"\n- Tempo obiettivo: {p_target_time}"
+    else:
+        obiettivo_block = "\n\nOBIETTIVO: L'atleta non ha ancora impostato un obiettivo gara specifico. Analizza la corsa in modo generico, valutando la forma attuale e dando consigli per migliorare."
+
+    # Pace reference for the structured sections
+    pace_ref = f" ({p_target_pace}/km)" if p_target_pace else ""
+    race_ref = p_race_goal if p_race_goal else "il tuo obiettivo"
+
+    system_msg = f"""Sei un coach di corsa esperto e appassionato. Parli in italiano, tono diretto e schietto.
+Non sei un chatbot — sei un allenatore vero. Dai del tu. Ogni analisi DEVE essere UNICA: non ripetere mai
+le stesse frasi, varia il linguaggio, adatta il tono alla situazione. Se l'atleta ha fatto bene, mostra entusiasmo.
+Se ha fatto male, sii onesto ma costruttivo. Se è stanco, mostra empatia. Se è in crescita, caricalo.
 
 IL TUO ATLETA:
-- Nome: {p_name}, uomo di {p_age} anni, alto 172cm, peso {p_weight}kg
+- Nome: {p_name}, {p_age} anni, {p_height}cm, peso {p_weight}kg
 - FC massima: {p_max_hr} bpm
-- VDOT attuale: {vdot_val or 'non calcolato'}{injury_block}
+- Livello: {p_level}
+- VDOT attuale: {vdot_val or 'non ancora calcolato'}{injury_block}
 {pbs_block}
 {vdot_block}
+{obiettivo_block}
 
-OBIETTIVO: Mezza Maratona di Corralejo (Fuerteventura), 12 Dicembre 2026
-- Mancano {weeks_to_race} settimane alla gara
-- Passo obiettivo: {p_target_pace}/km → Tempo obiettivo: {p_target_time}
+COME ANALIZZARE OGNI CORSA — USA QUESTE SEZIONI (adatta l'ordine e il peso in base alla corsa):
 
-COME ANALIZZARE OGNI CORSA — STRUTTURA OBBLIGATORIA:
-Rispondi SEMPRE seguendo questa struttura con le sezioni indicate. Usa emoji nei titoli delle sezioni.
-Parla come un coach serio, orientato all'obiettivo. Dai del tu. Tono diretto e schietto.
+📊 DATI — Riassumi i dati chiave della corsa (distanza, tempo, passo, FC).
 
-SEZIONE 1 — INTRO (1-2 righe):
-Apri con "Ho analizzato la tua attività:" e una frase che inquadra il tipo di lettura che stai facendo.
+🧠 CLASSIFICAZIONE — Che tipo di allenamento è stato? Confronta con i passi VDOT/Daniels.
+Spiega PERCHÉ lo classifichi così con 2-3 motivi basati su passo e FC.
 
-SEZIONE 2 — 📊 Dati della corsa:
-Elenca con bullet points: Distanza, Tempo, Passo medio, Frequenza cardiaca media (se disponibile).
+🎯 UTILITÀ PER L'OBIETTIVO — Quanto questa corsa contribuisce a {race_ref}{pace_ref}?
+Se non c'è obiettivo, valuta il contributo alla forma generale.
 
-SEZIONE 3 — 🧠 Che tipo di allenamento è stato:
-Classifica la corsa (corsa lenta Z2, medio aerobico, soglia, ripetute, progressivo, gara, ecc.).
-Usa 👉 per indicare la classificazione. Spiega PERCHÉ con 2-3 punti basati su passo e FC.
-Confronta con i passi Daniels/VDOT.
+👍 PUNTI DI FORZA — 2-3 cose specifiche fatte bene (basate sui numeri reali, non generiche).
 
-SEZIONE 4 — 🎯 Quanto è utile per il tuo obiettivo ({p_target_pace}/km sulla mezza):
-Valuta quanto questa corsa contribuisce all'obiettivo finale. Sii onesto.
+❗ AREE DI MIGLIORAMENTO — Gap concreti con numeri: "corri a X ma il tuo target è Y".
 
-SEZIONE 5 — 👍 Cosa stai facendo bene:
-2-3 punti positivi specifici basati sui dati reali.
+🔥 PROIEZIONE — Stima tempi gara attuali dal VDOT. Confronta con l'obiettivo.
+{"Mancano " + str(weeks_to_race) + " settimane — dì se è fattibile e cosa serve." if weeks_to_race > 0 else ""}
 
-SEZIONE 6 — ❗ Gap da colmare:
-Mostra il gap tra livello attuale e obiettivo con numeri concreti.
-Usa 👉 per evidenziare i dati chiave.
+🧩 PRESCRIZIONE — Suggerisci 2-3 allenamenti specifici con passi concreti derivati dal VDOT.
 
-SEZIONE 7 — 🔥 Tradotto in realtà:
-Stima i tempi gara attuali dell'atleta (10K, mezza) basandoti sul VDOT e sui dati.
-Mostra cosa deve diventare per raggiungere l'obiettivo.
-Indica se è fattibile e in che tempi.
+📈 VOTO — Da 1 a 10, con ✔️ per i punti forti e ❌ per le carenze.
 
-SEZIONE 8 — 🧩 Cosa ti manca (analisi tecnica):
-Identifica 2-3 aree di lavoro specifiche (es. resistenza aerobica, soglia lattato, velocità specifica).
-Per ognuna dai esempi concreti di allenamenti (es. "3x10 min a 4:40-4:45", "6x1000 a 4:20-4:25").
-
-SEZIONE 9 — 📈 Valutazione della corsa:
-Dai un voto da 1 a 10 con breve motivazione.
-Usa ✔️ per i punti forti e ❌ per le carenze.
-
-REGOLE:
-- Cita i passi Daniels/VDOT quando parli di zone e ritmi
-- Sii SPECIFICO con i numeri: "hai corso a 5:15 ma il tuo passo easy Daniels è 5:40-6:00"
-- Se c'è la sessione pianificata, confronta con quella
-- Se ci sono corse recenti, identifica TREND (miglioramento, stagnazione, sovrallenamento)
-- Menziona quante settimane mancano alla gara
-- Lunghezza: 300-500 parole. Dettagliato e strutturato."""
+REGOLE FONDAMENTALI:
+- Cita SEMPRE i passi Daniels/VDOT quando valuti zone e ritmi
+- Sii CHIRURGICO con i numeri: "hai corso a 5:15 ma il tuo Easy Daniels è 5:40-6:00"
+- Se c'è sessione pianificata, confronta esecuzione vs piano
+- Se ci sono corse recenti, identifica TREND (miglioramento, plateau, sovrallenamento)
+- NON ripetere mai la stessa struttura di frase tra analisi diverse
+- Varia gli opener: a volte parti dai dati, a volte dal contesto, a volte da un'osservazione
+- 300-500 parole. Denso di contenuto, zero fuffa."""
 
     # ── Build user message with plan comparison ──
     run_info = f"""CORSA DA ANALIZZARE:
@@ -1686,7 +1709,7 @@ async def get_exercises_list():
 
 @api_router.post("/runs/cleanup")
 async def cleanup_duplicate_runs():
-    """Remove all runs without strava_id (seed duplicates)"""
+    """Remove all runs without strava_id (non-Strava manual entries)"""
     result = await db.runs.delete_many({"strava_id": {"$exists": False}})
     result2 = await db.runs.delete_many({"strava_id": None})
     total = result.deleted_count + result2.deleted_count
@@ -1877,9 +1900,17 @@ async def generate_weekly_report() -> dict:
             if s.get("type") not in ("riposo",):
                 next_week_sessions.append(f"{s.get('title', s.get('type', '?'))}")
 
-    # Race countdown
-    race_date = date(2026, 12, 12)
-    days_to_race = (race_date - today).days
+    # Race countdown (dynamic from profile)
+    profile_data = await db.profile.find_one({}, {"_id": 0})
+    race_date_str = profile_data.get("race_date") if profile_data else None
+    if race_date_str:
+        try:
+            race_date = date.fromisoformat(race_date_str)
+            days_to_race = (race_date - today).days
+        except:
+            days_to_race = 0
+    else:
+        days_to_race = 0
 
     # ── Run details for the week ──
     run_details = []
@@ -2081,7 +2112,11 @@ async def _get_analytics_impl():
     import math
     runs = await db.runs.find({}, {"_id": 0}).sort("date", 1).to_list(2000)
     profile = await db.profile.find_one({}, {"_id": 0})
-    max_hr = profile.get("max_hr", 179) if profile else 179
+    max_hr = profile.get("max_hr") if profile else None
+    if not max_hr:
+        # Fallback: estimate from age (220 - age) or use 180 as generic default
+        age = profile.get("age") if profile else None
+        max_hr = (220 - age) if age else 180
 
     # Filter valid runs
     valid_runs = [r for r in runs if r.get("distance_km", 0) > 0.5 and r.get("avg_pace")]
@@ -2137,17 +2172,39 @@ async def _get_analytics_impl():
             if pct_vo2 > 0:
                 vo2max = round(vo2 / pct_vo2, 1)
 
-    # ---- TARGET VO2MAX for 4:30/km half marathon (1:35:00 = 95 min) ----
-    # Using Daniels formula backwards: need to find VO2max that allows 4:30/km
-    # 4:30/km = 270 sec/km, for 21.1km = 95 min
-    # velocity = 21100m / 95min = 222.1 m/min
-    target_velocity = 21100 / 95.0  # m/min for 1:35:00
-    target_time_min = 95.0
-    # Daniels formula for VO2 at this pace
-    target_vo2 = -4.60 + 0.182258 * target_velocity + 0.000104 * target_velocity * target_velocity
-    # %VO2max at race distance (Daniels)
-    target_pct_vo2 = 0.8 + 0.1894393 * math.exp(-0.012778 * target_time_min) + 0.2989558 * math.exp(-0.1932605 * target_time_min)
-    vo2max_target = round(target_vo2 / target_pct_vo2, 1) if target_pct_vo2 > 0 else None
+    # ---- TARGET VO2MAX (dynamic from user's race goal) ----
+    # Calculate from user's target_time and race distance
+    vo2max_target = None
+    target_time_str = profile.get("target_time") if profile else None
+    race_goal = profile.get("race_goal", "") if profile else ""
+    # Determine race distance in meters from race_goal
+    race_dist_m = None
+    if race_goal:
+        rg_lower = race_goal.lower()
+        if "maratona" in rg_lower and "mezza" not in rg_lower:
+            race_dist_m = 42195
+        elif "mezza" in rg_lower or "half" in rg_lower or "21" in rg_lower:
+            race_dist_m = 21097
+        elif "10" in rg_lower:
+            race_dist_m = 10000
+        elif "5" in rg_lower:
+            race_dist_m = 5000
+    if target_time_str and race_dist_m:
+        try:
+            t_parts = target_time_str.split(":")
+            if len(t_parts) == 3:
+                target_time_min = int(t_parts[0]) * 60 + int(t_parts[1]) + int(t_parts[2]) / 60
+            elif len(t_parts) == 2:
+                target_time_min = int(t_parts[0]) + int(t_parts[1]) / 60
+            else:
+                target_time_min = 0
+            if target_time_min > 0:
+                target_velocity = race_dist_m / target_time_min
+                target_vo2 = -4.60 + 0.182258 * target_velocity + 0.000104 * target_velocity * target_velocity
+                target_pct_vo2 = 0.8 + 0.1894393 * math.exp(-0.012778 * target_time_min) + 0.2989558 * math.exp(-0.1932605 * target_time_min)
+                vo2max_target = round(target_vo2 / target_pct_vo2, 1) if target_pct_vo2 > 0 else None
+        except:
+            vo2max_target = None
 
     # ---- RACE PREDICTIONS (VDOT-based, Daniels' Running Formula) ----
     # Use the already-calculated vo2max (from best post-injury effort + Daniels formula)
@@ -2226,11 +2283,30 @@ async def _get_analytics_impl():
     except Exception as e:
         logger.error(f"Prediction trends error: {e}")
 
-    # Target half marathon: 4:30/km = 94:55
-    target_hm_time = 95.0
-    current_hm_pred = race_predictions.get("21.1km", {}).get("predicted_time_min", 999)
-    goal_gap_min = round(current_hm_pred - target_hm_time, 1)
-    goal_progress_pct = min(100, max(0, round((target_hm_time / max(current_hm_pred, 1)) * 100)))
+    # Target time from profile (dynamic)
+    goal_gap_min = 0
+    goal_progress_pct = 0
+    target_race_time_min = 0
+    if target_time_str:
+        try:
+            t_parts = target_time_str.split(":")
+            if len(t_parts) == 3:
+                target_race_time_min = int(t_parts[0]) * 60 + int(t_parts[1]) + int(t_parts[2]) / 60
+            elif len(t_parts) == 2:
+                target_race_time_min = int(t_parts[0]) + int(t_parts[1]) / 60
+        except:
+            target_race_time_min = 0
+    # Find closest race prediction to user's race distance
+    pred_key = "21.1km"  # default
+    if race_dist_m:
+        if race_dist_m <= 5500: pred_key = "5km"
+        elif race_dist_m <= 11000: pred_key = "10km"
+        elif race_dist_m <= 25000: pred_key = "21.1km"
+        else: pred_key = "42.2km"
+    current_pred = race_predictions.get(pred_key, {}).get("predicted_time_min", 999)
+    if target_race_time_min > 0:
+        goal_gap_min = round(current_pred - target_race_time_min, 1)
+        goal_progress_pct = min(100, max(0, round((target_race_time_min / max(current_pred, 1)) * 100)))
 
     # ---- MONTHLY PACE TREND ----
     monthly_data = {}
@@ -2347,13 +2423,13 @@ async def _get_analytics_impl():
 
     # ---- ANAEROBIC THRESHOLD ESTIMATE (Current and Pre-Injury) ----
     # AT typically at ~85-88% of max HR
-    # Pre-injury data: November 21, 2025 - 6km test at 4:20/km with HR 149 avg
-    pre_injury_at = {
-        "hr": 149,
-        "pace": "4:20",
-        "date": "2025-11-21",
-        "note": "Test 6km pre-infortunio"
-    }
+    # Pre-injury data: loaded from profile if available
+    injury_data = profile.get("injury") if profile else None
+    pre_injury_at = None
+    if injury_data and injury_data.get("pre_injury_at"):
+        pre_injury_at = injury_data["pre_injury_at"]
+    if pre_injury_at is None:
+        pre_injury_at = {"hr": None, "pace": None, "date": None, "note": None}
     
     # Current AT from tempo/threshold runs (fastest runs with HR data > 20min, post-injury 2026+)
     threshold_runs = [r for r in valid_runs if r.get("avg_hr") and r.get("duration_minutes", 0) > 20 and pace_str_to_secs(r.get("avg_pace", "9:99")) < 360 and r.get("date", "").startswith("2026")]
@@ -2533,8 +2609,8 @@ async def _get_analytics_impl():
         "prediction_trends": prediction_trends,
         "goal_gap_min": goal_gap_min,
         "goal_progress_pct": goal_progress_pct,
-        "target_hm_time_str": "1:35:00",
-        "current_hm_pred_str": race_predictions.get("21.1km", {}).get("predicted_time_str", "N/D"),
+        "target_time_str": target_time_str or "N/D",
+        "current_pred_str": race_predictions.get(pred_key, {}).get("predicted_time_str", "N/D"),
         "weekly_volume": weekly_volume,
         "zone_distribution": zone_distribution,
         "hr_zone_distribution": hr_zone_distribution,
@@ -2898,14 +2974,11 @@ async def get_profile_data():
 @api_router.patch("/profile")
 async def update_profile(req: ProfileUpdateRequest):
     update_fields = {}
-    if req.age is not None:
-        update_fields["age"] = req.age
-    if req.weight_kg is not None:
-        update_fields["weight_kg"] = req.weight_kg
-    if req.max_hr is not None:
-        update_fields["max_hr"] = req.max_hr
-    if req.max_weekly_km is not None:
-        update_fields["max_weekly_km"] = req.max_weekly_km
+    for field in ["name", "age", "weight_kg", "height_cm", "max_hr", "max_weekly_km",
+                   "race_goal", "race_date", "target_pace", "target_time", "level", "started_running"]:
+        val = getattr(req, field, None)
+        if val is not None:
+            update_fields[field] = val
     if not update_fields:
         raise HTTPException(400, "Nessun campo da aggiornare")
     await db.profile.update_one({}, {"$set": update_fields})
@@ -3003,7 +3076,7 @@ class StravaCodeRequest(BaseModel):
 @api_router.get("/strava/auth-url")
 async def get_strava_auth_url():
     """Return the Strava OAuth URL for authorizing with activity:read_all scope"""
-    redirect_uri = "https://corralejo-backend.onrender.com/api/strava/callback"
+    redirect_uri = "https://dani-backend-ea0s.onrender.com/api/strava/callback"
     url = (
         f"https://www.strava.com/oauth/authorize"
         f"?client_id={STRAVA_CLIENT_ID}"
@@ -3019,7 +3092,7 @@ async def strava_callback(code: str = None, error: str = None, scope: str = None
     """Strava OAuth callback - exchanges code and redirects to app"""
     from starlette.responses import RedirectResponse
     if error:
-        return RedirectResponse(url=f"corralejo://strava-callback?error={error}")
+        return RedirectResponse(url=f"altrove://strava-callback?error={error}")
     if code:
         # Exchange the code server-side
         try:
@@ -3047,14 +3120,14 @@ async def strava_callback(code: str = None, error: str = None, scope: str = None
                     athlete = data.get("athlete", {})
                     name = f"{athlete.get('firstname', '')} {athlete.get('lastname', '')}".strip()
                     logger.info(f"Strava OAuth callback success for {name}")
-                    return RedirectResponse(url=f"corralejo://strava-callback?success=true&athlete={name}")
+                    return RedirectResponse(url=f"altrove://strava-callback?success=true&athlete={name}")
                 else:
                     logger.error(f"Strava callback exchange failed: {resp.text}")
-                    return RedirectResponse(url=f"corralejo://strava-callback?error=exchange_failed")
+                    return RedirectResponse(url=f"altrove://strava-callback?error=exchange_failed")
         except Exception as e:
             logger.error(f"Strava callback error: {e}")
-            return RedirectResponse(url=f"corralejo://strava-callback?error=server_error")
-    return RedirectResponse(url="corralejo://strava-callback?error=no_code")
+            return RedirectResponse(url=f"altrove://strava-callback?error=server_error")
+    return RedirectResponse(url="altrove://strava-callback?error=no_code")
 
 @api_router.post("/strava/exchange-code")
 async def exchange_strava_code(req: StravaCodeRequest):
@@ -3257,6 +3330,14 @@ async def sync_strava_activities():
     if not activities and strava_data.get("error"):
         return {"synced": 0, "message": strava_data.get("error"), "needs_reauth": False}
 
+    # Get user's max_hr from profile for HR% calculations
+    profile = await db.profile.find_one({}, {"_id": 0})
+    user_max_hr = profile.get("max_hr") if profile else None
+    if not user_max_hr and profile and profile.get("age"):
+        user_max_hr = 220 - profile["age"]
+    if not user_max_hr:
+        user_max_hr = 180  # generic fallback
+
     synced = 0
     matched = 0
     for act in activities:
@@ -3295,8 +3376,8 @@ async def sync_strava_activities():
             "avg_pace": act["avg_pace"],
             "avg_hr": round(act["avg_hr"]) if act.get("avg_hr") else None,
             "max_hr": round(act["max_hr"]) if act.get("max_hr") else None,
-            "avg_hr_pct": round((act["avg_hr"] / 179) * 100) if act.get("avg_hr") else None,
-            "max_hr_pct": round((act["max_hr"] / 179) * 100) if act.get("max_hr") else None,
+            "avg_hr_pct": round((act["avg_hr"] / user_max_hr) * 100) if act.get("avg_hr") and user_max_hr else None,
+            "max_hr_pct": round((act["max_hr"] / user_max_hr) * 100) if act.get("max_hr") and user_max_hr else None,
             "run_type": plan_feedback.get("matched_type", "easy"),
             "notes": f"Importata da Strava: {act.get('name', '')}",
             "location": None,
@@ -4831,13 +4912,13 @@ BADGE_DEFINITIONS = [
     {"id": "progressive_perfect", "name": "Progressivo perfetto", "cat": "training", "cat_label": "🏋️ Tipi di allenamento", "desc": "Completa 15 corse progressive", "icon": "📊", "target": 15},
     {"id": "strength", "name": "Forza e potenza", "cat": "training", "cat_label": "🏋️ Tipi di allenamento", "desc": "Completa 50 sessioni di rinforzo muscolare", "icon": "💪", "target": 50},
     {"id": "cross_trainer", "name": "Cross trainer", "cat": "training", "cat_label": "🏋️ Tipi di allenamento", "desc": "Completa 20 sessioni di cross-training", "icon": "🚴", "target": 20},
-    # -- Half marathon goals --
-    {"id": "hm_ready_18", "name": "Pronto per la mezza", "cat": "half_marathon", "cat_label": "🎯 Obiettivi mezza maratona", "desc": "Completa il primo lungo da 18 km", "icon": "🎯", "target": 1},
-    {"id": "hm_race_pace", "name": "Ritmo gara", "cat": "half_marathon", "cat_label": "🎯 Obiettivi mezza maratona", "desc": "Corri 10 km al passo obiettivo (4:30/km)", "icon": "⏱️", "target": 1},
-    {"id": "hm_plan_done", "name": "Piano rispettato", "cat": "half_marathon", "cat_label": "🎯 Obiettivi mezza maratona", "desc": "Completa la fase di preparazione specifica (sett. 23-30)", "icon": "📋", "target": 1},
-    {"id": "hm_taper", "name": "Tapering perfetto", "cat": "half_marathon", "cat_label": "🎯 Obiettivi mezza maratona", "desc": "Segui alla lettera le ultime 3 settimane di scarico", "icon": "🧘", "target": 1},
-    {"id": "hm_race_day", "name": "Giorno di gara", "cat": "half_marathon", "cat_label": "🎯 Obiettivi mezza maratona", "desc": "Badge sbloccato il giorno della mezza maratona", "icon": "🏁", "target": 1},
-    {"id": "hm_goal_hit", "name": "Obiettivo centrato!", "cat": "half_marathon", "cat_label": "🎯 Obiettivi mezza maratona", "desc": "Raggiungi il tempo di 1:35:00 alla gara", "icon": "🥇", "target": 1},
+    # -- Race goals (dynamic) --
+    {"id": "hm_ready_18", "name": "Pronto per la gara", "cat": "race_goals", "cat_label": "🎯 Obiettivi gara", "desc": "Completa il primo lungo da 18 km", "icon": "🎯", "target": 1},
+    {"id": "hm_race_pace", "name": "Ritmo gara", "cat": "race_goals", "cat_label": "🎯 Obiettivi gara", "desc": "Corri 10 km al passo obiettivo", "icon": "⏱️", "target": 1},
+    {"id": "hm_plan_done", "name": "Piano rispettato", "cat": "race_goals", "cat_label": "🎯 Obiettivi gara", "desc": "Completa la fase di preparazione specifica", "icon": "📋", "target": 1},
+    {"id": "hm_taper", "name": "Tapering perfetto", "cat": "race_goals", "cat_label": "🎯 Obiettivi gara", "desc": "Segui alla lettera le ultime 3 settimane di scarico", "icon": "🧘", "target": 1},
+    {"id": "hm_race_day", "name": "Giorno di gara", "cat": "race_goals", "cat_label": "🎯 Obiettivi gara", "desc": "Badge sbloccato il giorno della gara obiettivo", "icon": "🏁", "target": 1},
+    {"id": "hm_goal_hit", "name": "Obiettivo centrato!", "cat": "race_goals", "cat_label": "🎯 Obiettivi gara", "desc": "Raggiungi il tempo obiettivo alla gara", "icon": "🥇", "target": 1},
     # -- Science & analysis --
     {"id": "zone_ideal", "name": "Zona ideale", "cat": "science", "cat_label": "🧠 Analisi e scienza", "desc": "80% corse in zona Easy (80/20) per un mese", "icon": "🎯", "target": 1},
     {"id": "aero_efficiency", "name": "Efficienza aerobica", "cat": "science", "cat_label": "🧠 Analisi e scienza", "desc": "Decoupling medio <5% su 5 corse lunghe", "icon": "❤️", "target": 1},
@@ -4894,10 +4975,10 @@ BADGE_DEFINITIONS = [
     {"id": "double_day", "name": "Doppia giornata", "cat": "training", "cat_label": "🏋️ Tipi di allenamento", "desc": "Corri 2 volte nello stesso giorno", "icon": "2️⃣", "target": 1},
     {"id": "negative_split", "name": "Negative split", "cat": "training", "cat_label": "🏋️ Tipi di allenamento", "desc": "Corri la 2a metà più veloce della 1a (distanza ≥8km)", "icon": "📈", "target": 1},
     # -- NEW: Half-marathon extended --
-    {"id": "hm_15km", "name": "15 km completati", "cat": "half_marathon", "cat_label": "🎯 Obiettivi mezza maratona", "desc": "Completa una corsa di almeno 15 km", "icon": "🎯", "target": 1},
-    {"id": "hm_20km", "name": "Prova generale", "cat": "half_marathon", "cat_label": "🎯 Obiettivi mezza maratona", "desc": "Completa una corsa di almeno 20 km", "icon": "🏁", "target": 1},
-    {"id": "hm_sub2h", "name": "Mezza sotto le 2 ore", "cat": "half_marathon", "cat_label": "🎯 Obiettivi mezza maratona", "desc": "Completa la mezza maratona in meno di 2 ore", "icon": "⏰", "target": 1},
-    {"id": "hm_corralejo", "name": "Corralejo Finisher!", "cat": "half_marathon", "cat_label": "🎯 Obiettivi mezza maratona", "desc": "Completa la mezza maratona di Corralejo 2026", "icon": "🏖️", "target": 1},
+    {"id": "hm_15km", "name": "15 km completati", "cat": "race_goals", "cat_label": "🎯 Obiettivi gara", "desc": "Completa una corsa di almeno 15 km", "icon": "🎯", "target": 1},
+    {"id": "hm_20km", "name": "Prova generale", "cat": "race_goals", "cat_label": "🎯 Obiettivi gara", "desc": "Completa una corsa di almeno 20 km", "icon": "🏁", "target": 1},
+    {"id": "hm_sub2h", "name": "Sotto le 2 ore", "cat": "race_goals", "cat_label": "🎯 Obiettivi gara", "desc": "Completa una gara in meno di 2 ore", "icon": "⏰", "target": 1},
+    {"id": "race_finisher", "name": "Finisher!", "cat": "race_goals", "cat_label": "🎯 Obiettivi gara", "desc": "Completa la tua gara obiettivo", "icon": "🏖️", "target": 1},
     # -- NEW: Science extended --
     {"id": "hr_efficiency_5pct", "name": "Cuore efficiente", "cat": "science", "cat_label": "🧠 Analisi e scienza", "desc": "Decoupling <5% su una corsa lunga", "icon": "💓", "target": 1},
     {"id": "polarized_month", "name": "Mese polarizzato", "cat": "science", "cat_label": "🧠 Analisi e scienza", "desc": "Mantieni polarizzazione >80% per un mese", "icon": "⚖️", "target": 1},
@@ -5363,15 +5444,18 @@ async def compute_badges() -> list:
     # Has run >= 18km
     has_18km = any(r.get("distance_km", 0) >= 18 for r in valid_runs)
 
-    # Race pace: 10km at ~4:30/km (270s +/- 10s tolerance)
+    # Race pace: 10km at target pace (from profile, with 5s tolerance)
     has_race_pace = False
-    for r in valid_runs:
-        d = r.get("distance_km", 0)
-        if 9.5 <= d <= 10.5:
-            ps = _pace_secs(r.get("avg_pace", ""))
-            if ps <= 275:  # 4:35 tolerance
-                has_race_pace = True
-                break
+    user_target_pace = profile.get("target_pace", "") if profile else ""
+    target_pace_secs = _pace_secs(user_target_pace) if user_target_pace else 0
+    if target_pace_secs > 0:
+        for r in valid_runs:
+            d = r.get("distance_km", 0)
+            if 9.5 <= d <= 10.5:
+                ps = _pace_secs(r.get("avg_pace", ""))
+                if ps <= target_pace_secs + 5:  # 5s tolerance
+                    has_race_pace = True
+                    break
 
     # Plan specific weeks done
     spec_weeks_done = 0
@@ -5397,13 +5481,27 @@ async def compute_badges() -> list:
     race_date = profile.get("race_date", "")
     is_race_day = race_date and race_date <= dt_date.today().isoformat()
 
-    # Goal hit: HM under 1:35:00 = 95 min
+    # Goal hit: check against user's target time (dynamic)
     hm_goal_hit = False
-    be_hm = best_efforts_map.get("Half-Marathon")
-    if be_hm:
-        hm_time = be_hm.get("elapsed_time", 9999)
-        if hm_time <= 5700:  # 95 min
-            hm_goal_hit = True
+    user_target_time = profile.get("target_time", "") if profile else ""
+    if user_target_time:
+        try:
+            tp = user_target_time.split(":")
+            if len(tp) == 3:
+                target_secs = int(tp[0]) * 3600 + int(tp[1]) * 60 + int(tp[2])
+            elif len(tp) == 2:
+                target_secs = int(tp[0]) * 60 + int(tp[1])
+            else:
+                target_secs = 9999
+            # Check best effort for the closest matching race distance
+            for be_key in ["Half-Marathon", "10k", "5k"]:
+                be = best_efforts_map.get(be_key)
+                if be:
+                    if be.get("elapsed_time", 9999) <= target_secs:
+                        hm_goal_hit = True
+                    break
+        except:
+            pass
 
     # Cadence >= 180 on 10km+ run (Strava gives half-cadence, app doubles it)
     has_cadence_180 = False
@@ -5812,14 +5910,17 @@ async def compute_badges() -> list:
                 unlocked = t < 7200
             else:
                 progress = 0
-        elif bid == "hm_corralejo":
-            # Check if there's a run on Dec 12 2026 (race day) with >=20km
-            has_corralejo = any(
-                r.get("date", "")[:10] == "2026-12-12" and r.get("distance_km", 0) >= 20
-                for r in runs  # Use all runs, not just post-march
-            )
-            progress = 1 if has_corralejo else 0
-            unlocked = has_corralejo
+        elif bid == "race_finisher":
+            # Check if there's a run on race day with sufficient distance
+            race_date_str = profile.get("race_date", "") if profile else ""
+            has_race_finish = False
+            if race_date_str:
+                has_race_finish = any(
+                    r.get("date", "")[:10] == race_date_str[:10] and r.get("distance_km", 0) >= 5
+                    for r in runs
+                )
+            progress = 1 if has_race_finish else 0
+            unlocked = has_race_finish
 
         # ---- NEW SCIENCE ----
         elif bid == "hr_efficiency_5pct":
@@ -7097,7 +7198,7 @@ async def _keep_alive_pinger():
     """Self-ping every 14 minutes to prevent Render free tier from sleeping.
     Render sleeps after 15 min inactivity — this keeps the server warm."""
     import httpx
-    backend_url = os.environ.get("RENDER_EXTERNAL_URL", "https://corralejo-backend.onrender.com")
+    backend_url = os.environ.get("RENDER_EXTERNAL_URL", "https://dani-backend-ea0s.onrender.com")
     while True:
         await asyncio.sleep(14 * 60)  # 14 minutes
         try:

@@ -1,7 +1,7 @@
-# 🏃 CORRALEJO 2026 — Half Marathon Training App
+# 🏃 ALTROVE — Running Training App
 
-App completa di allenamento per la **Mezza Maratona di Fuerteventura (Corralejo)**, Dicembre 2026.
-Progettata per un runner in fase di ritorno post-infortunio con obiettivo tempo **1:35:00** (passo 4:30/km).
+App completa di allenamento per la corsa, white-label e personalizzabile per qualsiasi runner con qualsiasi obiettivo.
+Generazione dinamica del piano, AI Coach adattivo, integrazione Strava.
 
 ---
 
@@ -76,8 +76,8 @@ Progettata per un runner in fase di ritorno post-infortunio con obiettivo tempo 
 | **Repository** | https://github.com/daniele9233/CORRALEJO-2026.git |
 | **Branch principale** | `main` |
 | **Visibilità** | Public |
-| **Package Android** | `com.kikkoderiso.corralejo` |
-| **URL Scheme** | `corralejo://` |
+| **Package Android** | `com.kikkoderiso.altrove` |
+| **URL Scheme** | `altrove://` |
 | **EAS Project ID** | `1a7ea756-e936-4b37-b3d9-fd1e35b66331` (account massiminovanni) |
 
 ### Struttura Repository
@@ -149,7 +149,7 @@ CORRALEJO-2026/
 
 ### URL Produzione
 ```
-https://corralejo-backend.onrender.com
+https://dani-backend-ea0s.onrender.com
 ```
 
 ### Collezioni MongoDB
@@ -373,7 +373,7 @@ Sistema gamification con **100+ badge** in 8 categorie:
 - **📅 Costanza** (16): Primi 10/25/50/100/200 corse, Settimana perfetta, Streak 3/5 settimane, Mese d'oro, Fedeltà, Runner instancabile, 365 giorni, Sveglia presto, Notturno, Guerriero weekend
 - **📈 Miglioramenti** (21): VDOT +1/+2/+3/+5/+8/+10, VDOT 45/50/55, PB 5K/10K/Mezza, Sub 25/22/20 min 5K, Sub 50/45 min 10K, Sub 1:45/1:40 Mezza, Doppio record, Passo migliorato
 - **🏋️ Allenamento** (16): Re/Maestro ripetute, Lungo 20+/25km/30km, Scalatore, Progressivo, Negative split, Volume sett 40/60/80km, Back to back, Doppia giornata, Forza, Cross-training
-- **🎯 Mezza maratona** (10): 15km, 18km, 20km, Ritmo gara, Piano rispettato, Tapering, Sub 2h, Giorno gara, Obiettivo centrato, Corralejo Finisher
+- **🎯 Mezza maratona** (10): 15km, 18km, 20km, Ritmo gara, Piano rispettato, Tapering, Sub 2h, Giorno gara, Obiettivo centrato, Race Finisher
 - **🧠 Scienza** (11): Zona ideale 80/20, Cuore efficiente, Mese polarizzato, Varietà perfetta, Maestro recupero, FC Max trovata, Data Nerd, Rilevatore ripetute, Injury Risk, Cadenza 180
 - **💨 Velocità lampo** (10): 200m → 10km con soglie passo specifiche
 - **🎉 Fun & Speciali** (7): Primo passo, Prima settimana, Il Ritorno, Maratona mensile, Mese da 100km, Corsa 1h/2h
@@ -394,7 +394,7 @@ Strumenti di calcolo per il runner:
 
 ### 13. 🔗 Strava Callback
 Gestione OAuth Strava:
-- Riceve il codice di autorizzazione via deep link (`corralejo://strava-callback`)
+- Riceve il codice di autorizzazione via deep link (`altrove://strava-callback`)
 - Lo scambia per access token
 - Redirect alla pagina profilo
 
@@ -590,7 +590,7 @@ Per ogni distanza (5km, 10km, 15km, 21.1km):
 
 ## 🔌 API Endpoints
 
-Base URL: `https://corralejo-backend.onrender.com/api`
+Base URL: `https://dani-backend-ea0s.onrender.com/api`
 
 ### Inizializzazione
 | Metodo | Endpoint | Descrizione |
@@ -740,7 +740,7 @@ Il VDOT viene calcolato automaticamente dai migliori risultati dell'atleta su di
 1. L'utente preme "Connetti Strava" nel Profilo
 2. L'app chiama `GET /strava/auth-url` per ottenere l'URL OAuth
 3. Si apre il browser con la pagina di autorizzazione Strava
-4. L'utente autorizza e viene reindirizzato a `corralejo://strava-callback?code=XXX`
+4. L'utente autorizza e viene reindirizzato a `altrove://strava-callback?code=XXX`
 5. L'app cattura il deep link e chiama `POST /strava/exchange-code` con il codice
 6. Il backend scambia il codice per access token e lo salva nel profilo
 
@@ -825,7 +825,7 @@ Quando l'utente preme "Sync Strava":
 
 ### Backend (Render.com)
 Il backend è deployato automaticamente da GitHub:
-- **URL**: `https://corralejo-backend.onrender.com`
+- **URL**: `https://dani-backend-ea0s.onrender.com`
 - **Region**: Frankfurt (EU Central)
 - **Piano**: Free (512MB RAM, 0.1 CPU)
 - **Root Directory**: `backend`
@@ -852,7 +852,7 @@ npx eas build --platform android --profile preview
 | Variabile | Descrizione |
 |---|---|
 | `MONGO_URL` | Connection string MongoDB Atlas |
-| `DB_NAME` | Nome database (`corralejo`) |
+| `DB_NAME` | Nome database (`QWEN35`) |
 | `PYTHON_VERSION` | Versione Python (`3.11.11`) |
 | `GEMINI_API_KEY` | API key Google Gemini (gratuito) per AI Coach |
 | `ANTHROPIC_API_KEY` | API key Anthropic Claude 4 Haiku (AI Coach primario) |
@@ -862,7 +862,7 @@ npx eas build --platform android --profile preview
 ### Frontend
 | Variabile | Descrizione |
 |---|---|
-| `EXPO_PUBLIC_BACKEND_URL` | URL backend (default: `https://corralejo-backend.onrender.com`) |
+| `EXPO_PUBLIC_BACKEND_URL` | URL backend (default: `https://dani-backend-ea0s.onrender.com`) |
 
 ---
 
@@ -882,7 +882,7 @@ pip install -r requirements.txt
 
 # Crea file .env
 echo "MONGO_URL=mongodb+srv://..." > .env
-echo "DB_NAME=corralejo" >> .env
+echo "DB_NAME=QWEN35" >> .env
 
 # Avvia server
 uvicorn server:app --reload --port 8000
@@ -942,8 +942,8 @@ npx expo run:android
 - [x] **Zone HR corrette** — Soglie assolute BPM (non % del max) per distribuzione accurata: Z1<117, Z2 117-146, Z3 147-160, Z4 161-175, Z5>175
 - [x] **Resync dettagli Strava** — Endpoint per re-fetch cadenza, splits, best efforts per corse esistenti
 - [x] **EAS Updates (OTA)** — Aggiornamenti over-the-air configurati (`eas update` senza rebuild APK)
-- [x] **Logo Corralejo** — Icona app con runner stilizzato + sfondo gradient (adaptive icon Android)
-- [x] **Nome app** — "Corralejo 2026" (era "frontend")
+- [x] **Logo Altrove** — Icona app con runner stilizzato + sfondo gradient (adaptive icon Android)
+- [x] **Nome app** — "Altrove" (era "frontend")
 - [x] **Weekly Report push** — Riepilogo settimanale automatico: km fatti vs target, aderenza %, VDOT
 - [x] **Badge e Trofei (100+ badge)** — Sistema gamification con 100+ badge in 8 categorie. Espandito da 46 a 100+ con nuove categorie Fun & Speciali, sub-obiettivi tempo (Sub 25/22/20 min 5K, Sub 45 10K, Sub 1:45/1:40 Mezza), volume settimanale, negative split, double day, e altro. Badge azzerati dal 23 marzo 2026. Endpoint `GET /api/badges`
 - [x] **Fix previsioni gara** — Rimosso VDOT da segmenti/splits che gonfiava le previsioni (passi irrealistici come 3:34/km). Ora usa SOLO VDOT da corse complete con validazione pace 2:30-9:00/km. Previsioni coerenti con tabella Strava reale

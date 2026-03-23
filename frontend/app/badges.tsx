@@ -16,7 +16,7 @@ const CAT_COLORS: Record<string, string> = {
   consistency: '#22c55e',
   improvement: '#f97316',
   training: '#a855f7',
-  half_marathon: '#ef4444',
+  race_goals: '#ef4444',
   science: '#06b6d4',
   speed: '#eab308',
   fun: '#ec4899',
@@ -70,7 +70,7 @@ export default function BadgesScreen() {
   }
 
   const { categories, total, unlocked } = data;
-  const catOrder = ['distance', 'consistency', 'improvement', 'training', 'half_marathon', 'science', 'speed', 'fun'];
+  const catOrder = ['distance', 'consistency', 'improvement', 'training', 'race_goals', 'science', 'speed', 'fun'];
 
   // Extract Passerotto badge from any category
   let passerottoBadge: any = null;

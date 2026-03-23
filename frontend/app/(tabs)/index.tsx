@@ -99,14 +99,17 @@ export default function Dashboard() {
         {/* Header */}
         <View style={styles.header}>
           <View>
-            <Text style={styles.greeting}>MEZZA MARATONA</Text>
-            <Text style={styles.raceTitle}>Fuerteventura 2026</Text>
+            <Text style={styles.greeting}>{profile?.race_goal || 'LA TUA GARA'}</Text>
+            <Text style={styles.raceTitle}>{profile?.race_date ? new Date(profile.race_date).toLocaleDateString('it-IT', { year: 'numeric', month: 'short' }) : 'Imposta obiettivo'}</Text>
           </View>
           <View style={styles.countdownBadge}>
             <Text style={styles.countdownNumber}>{daysToRace}</Text>
             <Text style={styles.countdownLabel}>GIORNI</Text>
           </View>
         </View>
+
+        {/* Motto */}
+        <Text style={styles.motto}>sic transit gloria mundi</Text>
 
         {/* ====== HERO: TODAY'S WORKOUT ====== */}
         <View style={styles.todayHeaderRow}>
@@ -327,7 +330,7 @@ export default function Dashboard() {
           <View style={styles.statDivider} />
           <View style={styles.statItem}>
             <Text style={styles.statValue}>
-              {profile?.target_pace || '4:30'}
+              {profile?.target_pace || '--'}
             </Text>
             <Text style={styles.statLabel}>PASSO OBJ</Text>
           </View>
@@ -519,6 +522,11 @@ function formatDateShort(dateStr: string) {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: COLORS.bg },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+  motto: {
+    fontSize: FONT_SIZES.md, color: COLORS.textSecondary, fontStyle: 'italic',
+    letterSpacing: 3, textAlign: 'center', opacity: 0.5,
+    marginBottom: SPACING.lg, marginTop: -SPACING.sm,
+  },
 
   /* motivational quote */
   quoteCard: {

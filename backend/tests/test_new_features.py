@@ -140,20 +140,19 @@ class TestStravaIntegration:
     """Test Strava API integration"""
 
     def test_strava_profile_connected(self):
-        """Test GET /api/strava/profile returns Daniele Pascolini"""
+        """Test GET /api/strava/profile returns connected user"""
         response = requests.get(f"{BASE_URL}/api/strava/profile")
-        
+
         # Should return 200 if token is valid
         if response.status_code == 200:
             data = response.json()
             assert 'name' in data, "Strava profile missing name"
             assert 'connected' in data, "Strava profile missing connected status"
             assert data['connected'] == True, "Strava should be connected"
-            
-            # Verify it's Daniele Pascolini
-            assert 'Daniele' in data['name'], f"Expected Daniele Pascolini, got {data['name']}"
-            assert 'Pascolini' in data['name'], f"Expected Daniele Pascolini, got {data['name']}"
-            
+
+            # Verify a valid name is returned
+            assert len(data['name']) > 0, f"Expected a valid name, got empty string"
+
             print(f"✓ Strava profile connected: {data['name']}")
         elif response.status_code == 400:
             pytest.skip("Strava token not configured - expected in some environments")

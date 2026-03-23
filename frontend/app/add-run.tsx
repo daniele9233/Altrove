@@ -66,8 +66,9 @@ export default function AddRunScreen() {
         avg_pace: pace,
         avg_hr: avgHrVal,
         max_hr: maxHrVal,
-        avg_hr_pct: avgHrVal ? Math.round((avgHrVal / 179) * 100) : undefined,
-        max_hr_pct: maxHrVal ? Math.round((maxHrVal / 179) * 100) : undefined,
+        // HR% calculated server-side using user's actual max_hr from profile
+        avg_hr_pct: undefined,
+        max_hr_pct: undefined,
         run_type: runType,
         notes: notes || undefined,
         location: location || undefined,

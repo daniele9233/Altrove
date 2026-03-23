@@ -789,7 +789,7 @@ export default function ProgressiScreen() {
           {/* Current vs Pre-injury comparison */}
           <View style={styles.comparisonRow}>
             <View style={[styles.comparisonCard, { borderColor: COLORS.orange + '40' }]}>
-              <Text style={styles.comparisonLabel}>PRE-INFORTUNIO</Text>
+              <Text style={styles.comparisonLabel}>RIFERIMENTO PRECEDENTE</Text>
               <Text style={[styles.comparisonPace, { color: COLORS.orange }]}>{preInjuryAT.pace || '--'}/km</Text>
               <Text style={styles.comparisonHr}>{preInjuryAT.hr || '--'} bpm</Text>
               <Text style={styles.comparisonDate}>{preInjuryAT.date || ''}</Text>

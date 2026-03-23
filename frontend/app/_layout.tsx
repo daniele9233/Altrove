@@ -1,12 +1,14 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { Platform, Alert } from 'react-native';
+import { Platform, Alert, ActivityIndicator, View } from 'react-native';
 import * as Notifications from 'expo-notifications';
 import * as Device from 'expo-device';
 import * as Updates from 'expo-updates';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { COLORS } from '../src/theme';
 import { api } from '../src/api';
+import OnboardingScreen from '../src/onboarding';
 
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
@@ -156,13 +158,48 @@ async function autoSyncStrava() {
 }
 
 export default function RootLayout() {
+  const [checkingOnboarding, setCheckingOnboarding] = useState(true);
+  const [onboardingDone, setOnboardingDone] = useState(false);
+
   useEffect(() => {
-    registerForPushNotifications();
-    scheduleDailyReminder();
-    checkForOTAUpdate();
-    // Auto-sync Strava all'avvio (non blocca l'app)
-    autoSyncStrava();
+    (async () => {
+      try {
+        const done = await AsyncStorage.getItem('onboarding_completed');
+        setOnboardingDone(done === 'true');
+      } catch {
+        setOnboardingDone(false);
+      } finally {
+        setCheckingOnboarding(false);
+      }
+    })();
   }, []);
+
+  useEffect(() => {
+    if (onboardingDone) {
+      registerForPushNotifications();
+      scheduleDailyReminder();
+      checkForOTAUpdate();
+      autoSyncStrava();
+    }
+  }, [onboardingDone]);
+
+  if (checkingOnboarding) {
+    return (
+      <View style={{ flex: 1, backgroundColor: COLORS.bg, alignItems: 'center', justifyContent: 'center' }}>
+        <StatusBar style="light" />
+        <ActivityIndicator color={COLORS.lime} size="large" />
+      </View>
+    );
+  }
+
+  if (!onboardingDone) {
+    return (
+      <>
+        <StatusBar style="light" />
+        <OnboardingScreen onComplete={() => setOnboardingDone(true)} />
+      </>
+    );
+  }
 
   return (
     <>

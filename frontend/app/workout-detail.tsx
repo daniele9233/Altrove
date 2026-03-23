@@ -105,7 +105,7 @@ export default function WorkoutDetailScreen() {
 function getTypeTips(type: string): string {
   const tips: Record<string, string> = {
     corsa_lenta: 'Mantieni un ritmo confortevole dove puoi parlare facilmente. La FC dovrebbe restare sotto il 75% della massima. Questo tipo di corsa costruisce la base aerobica.',
-    lungo: 'Parti piano e, se previsto, accelera negli ultimi km. Porta acqua se oltre i 60 minuti. Fondamentale per la resistenza in mezza maratona.',
+    lungo: 'Parti piano e, se previsto, accelera negli ultimi km. Porta acqua se oltre i 60 minuti. Fondamentale per la resistenza in gara.',
     ripetute: 'Riscaldamento adeguato di almeno 2km. Rispetta i recuperi. La qualità conta più della quantità. Se non riesci a mantenere il passo, fermati.',
     progressivo: 'Inizia lento e aumenta gradualmente il ritmo. Non partire troppo forte. L\'ultimo km dovrebbe essere il più veloce.',
     rinforzo: 'Esegui tutti gli esercizi con il giusto tempo di esecuzione. La fase eccentrica è fondamentale per il tendine d\'Achille. Non saltare nessun esercizio.',

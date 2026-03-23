@@ -1,11 +1,11 @@
 {
   "expo": {
-    "name": "Corralejo 2026",
+    "name": "Altrove",
     "slug": "frontend",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "corralejo",
+    "scheme": "altrove",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "runtimeVersion": "1.0.0",
@@ -19,7 +19,7 @@
       "supportsTablet": true
     },
     "android": {
-      "package": "com.kikkoderiso.corralejo",
+      "package": "com.kikkoderiso.altrove",
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/adaptive-icon.png",
         "backgroundImage": "./assets/images/adaptive-bg.png"

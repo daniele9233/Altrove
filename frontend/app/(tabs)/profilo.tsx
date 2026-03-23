@@ -454,7 +454,7 @@ export default function ProfiloScreen() {
 
         {activeTab === 'integratori' && (
           <>
-            <Text style={styles.introText}>Piano integratori ottimizzato per il recupero da tendinopatia e prestazione in mezza maratona</Text>
+            <Text style={styles.introText}>Piano integratori ottimizzato per il recupero e la prestazione nella corsa</Text>
             {supplements.map(supp => (
               <View key={supp.id} style={styles.suppCard}>
                 <View style={styles.suppHeader}>

@@ -59,20 +59,19 @@ class TestStravaOAuthFlow:
         print(f"✓ Exchange code endpoint validates and rejects invalid codes")
 
     def test_strava_profile_after_token(self):
-        """Test GET /api/strava/profile returns Daniele Pascolini if token is valid"""
+        """Test GET /api/strava/profile returns connected user if token is valid"""
         response = requests.get(f"{BASE_URL}/api/strava/profile")
-        
+
         if response.status_code == 200:
             data = response.json()
             assert 'name' in data, "Profile missing name field"
             assert 'connected' in data, "Profile missing connected field"
-            
-            # Verify it's Daniele Pascolini
+
+            # Verify a valid name is returned
             name = data['name']
-            assert 'Daniele' in name, f"Expected Daniele Pascolini, got {name}"
-            assert 'Pascolini' in name, f"Expected Daniele Pascolini, got {name}"
+            assert len(name) > 0, f"Expected a valid name, got empty string"
             assert data['connected'] == True, "Connected should be True"
-            
+
             print(f"✓ Strava profile returns: {name} (connected={data['connected']})")
         elif response.status_code == 401:
             # Token might be expired or invalid - this is expected

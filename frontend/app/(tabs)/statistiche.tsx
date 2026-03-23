@@ -114,7 +114,7 @@ export default function StatisticheScreen() {
             <Text style={styles.vo2Level}>{getVo2Level(vo2max)}</Text>
             <View style={styles.vo2TargetRow}>
               <Ionicons name="flag" size={14} color={COLORS.orange} />
-              <Text style={styles.vo2TargetText}>Target 4:30/km: <Text style={styles.vo2TargetValue}>{vo2max_target || '~52'}</Text></Text>
+              <Text style={styles.vo2TargetText}>Target VO2max: <Text style={styles.vo2TargetValue}>{vo2max_target || 'N/D'}</Text></Text>
             </View>
             {vo2max && vo2max_target && (
               <Text style={styles.vo2Gap}>Gap: {(vo2max_target - vo2max).toFixed(1)} ml/kg/min</Text>
@@ -126,13 +126,13 @@ export default function StatisticheScreen() {
         <View style={styles.goalCard}>
           <View style={styles.goalHeader}>
             <Ionicons name="flag" size={20} color={COLORS.lime} />
-            <Text style={styles.goalTitle}>OBIETTIVO MEZZA MARATONA</Text>
+            <Text style={styles.goalTitle}>OBIETTIVO GARA</Text>
           </View>
           <View style={styles.goalRow}>
             <View style={styles.goalStat}>
               <Text style={styles.goalStatLabel}>TARGET</Text>
-              <Text style={styles.goalStatValue}>1:35:00</Text>
-              <Text style={styles.goalStatSub}>4:30/km</Text>
+              <Text style={styles.goalStatValue}>{analytics?.target_time_str || 'N/D'}</Text>
+              <Text style={styles.goalStatSub}>{analytics?.profile?.target_pace ? analytics.profile.target_pace + '/km' : '--'}</Text>
             </View>
             <View style={styles.goalArrow}>
               <Ionicons name="arrow-forward" size={24} color={COLORS.textMuted} />
@@ -178,29 +178,31 @@ export default function StatisticheScreen() {
             </View>
           </View>
           
-          {/* Pre-Injury */}
+          {/* Pre-Injury — shown only if user has pre-injury data */}
+          {anaerobic_threshold?.pre_injury?.hr && (
           <View style={styles.atPreInjurySection}>
-            <Text style={[styles.atSubtitle, { color: COLORS.orange }]}>PRE-INFORTUNIO (Nov 2025)</Text>
+            <Text style={[styles.atSubtitle, { color: COLORS.orange }]}>RIFERIMENTO PRECEDENTE</Text>
             <View style={styles.atRow}>
               <View style={styles.atItem}>
                 <Ionicons name="heart" size={22} color={COLORS.orange} />
-                <Text style={[styles.atValue, { color: COLORS.orange }]}>{anaerobic_threshold?.pre_injury?.hr || 149}</Text>
+                <Text style={[styles.atValue, { color: COLORS.orange }]}>{anaerobic_threshold.pre_injury.hr}</Text>
                 <Text style={styles.atLabel}>bpm</Text>
               </View>
               <View style={styles.atDivider} />
               <View style={styles.atItem}>
                 <Ionicons name="speedometer" size={22} color={COLORS.orange} />
-                <Text style={[styles.atValue, { color: COLORS.orange }]}>{anaerobic_threshold?.pre_injury?.pace || '4:20'}</Text>
+                <Text style={[styles.atValue, { color: COLORS.orange }]}>{anaerobic_threshold.pre_injury.pace || '--'}</Text>
                 <Text style={styles.atLabel}>/km</Text>
               </View>
               <View style={styles.atDivider} />
               <View style={styles.atItem}>
                 <Ionicons name="fitness" size={22} color={COLORS.orange} />
-                <Text style={[styles.atValue, { color: COLORS.orange }]}>{Math.round((149 / (user_max_hr || 180)) * 100)}</Text>
+                <Text style={[styles.atValue, { color: COLORS.orange }]}>{user_max_hr ? Math.round((anaerobic_threshold.pre_injury.hr / user_max_hr) * 100) : 'N/D'}</Text>
                 <Text style={styles.atLabel}>% FC max</Text>
               </View>
             </View>
           </View>
+          )}
           
           {/* AT History Chart (every 15 days) */}
           <View style={styles.atHistorySection}>

@@ -1,13 +1,12 @@
-# PRD - App Allenamento Mezza Maratona Fuerteventura 2026
+# PRD - Altrove — Running Training App
 
 ## Obiettivo
-App mobile per gestire il piano di allenamento per la Mezza Maratona di Fuerteventura Corralejo (12 Dicembre 2026), target 4:30/km (1h35m).
+App mobile white-label per gestire piani di allenamento per la corsa, personalizzabile per qualsiasi runner e qualsiasi obiettivo di gara.
 
 ## Profilo Atleta
-- 40 anni, 68kg, FC Max 179 bpm
-- Running dal Febbraio 2025, ~1400km totali
-- Infortunio: Tendinopatia inserzionale achillea destra (Nov 2025), recuperato
-- PB: 5km 20:35, 6km 26:00, 10km 45:31, 15km 1:13:38
+- Configurabile dall'utente tramite onboarding e profilo
+- Supporta qualsiasi distanza di gara, target pace/time, livello (principiante/intermedio/avanzato)
+- Piano generato dinamicamente con periodizzazione a 6 fasi
 
 ## Funzionalità Implementate
 

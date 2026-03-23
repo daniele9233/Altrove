@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: corralejo-backend
+    name: dani-backend-ea0s
     runtime: python
     region: frankfurt
     plan: free
@@ -9,8 +9,8 @@ services:
     startCommand: uvicorn server:app --host 0.0.0.0 --port $PORT
     envVars:
       - key: MONGO_URL
-        value: mongodb+srv://danielepasco_db_user:YOzkXH13qJmzcblb@mcorralejo.65zmtfk.mongodb.net/?appName=MCorralejo
+        value: mongodb+srv://danielepascoliniphotography_db_user:Fpq24OE8P2muPw3S@qwen35.he7fief.mongodb.net/?appName=QWEN35
       - key: DB_NAME
-        value: corralejo
+        value: QWEN35
       - key: PYTHON_VERSION
         value: "3.11"
