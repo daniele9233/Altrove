@@ -1735,8 +1735,8 @@ async def _rebuild_vo2max_history():
         run_date = run.get("date", "")
         hr = run.get("avg_hr")
 
-        # Only post-injury (2026+), validated efforts (≥4km)
-        if not run_date.startswith("2026") or dist < 4 or dur <= 0:
+        # Validated efforts (≥4km)
+        if dist < 4 or dur <= 0:
             continue
         # HR validation: ≥85% HRmax or no HR data
         if hr and max_hr > 0 and (hr / max_hr) < 0.85:
@@ -2126,9 +2126,9 @@ async def _get_analytics_impl():
         parts = p.split(":")
         return int(parts[0]) * 60 + int(parts[1]) if len(parts) == 2 else 999
 
-    # ---- VO2MAX ESTIMATION (Jack Daniels) - POST-INJURY ONLY (2026+) ----
-    # Find best efforts at different distances FROM 2026 ONLY
-    post_injury_runs = [r for r in valid_runs if r.get("date", "").startswith("2026")]
+    # ---- VO2MAX ESTIMATION (Jack Daniels) ----
+    # Find best efforts at different distances from ALL runs
+    post_injury_runs = valid_runs
     
     best_efforts_post_injury = {}
     for r in post_injury_runs:
@@ -2349,29 +2349,33 @@ async def _get_analytics_impl():
         week_runs = sum(1 for r in valid_runs if ws <= r.get("date", "") <= we)
         weekly_volume.append({"week_start": ws, "km": round(week_km, 1), "runs": week_runs})
 
-    # ---- HR ZONE DISTRIBUTION with CUSTOM BPM ranges (user's actual zones) ----
+    # ---- HR ZONE DISTRIBUTION with DYNAMIC BPM ranges based on user's max HR ----
     user_max_hr = max_hr  # User's actual max HR (loaded from profile)
+    z1_max = int(user_max_hr * 0.65)
+    z2_max = int(user_max_hr * 0.80)
+    z3_max = int(user_max_hr * 0.87)
+    z4_max = int(user_max_hr * 0.93)
     zone_definitions = [
-        {"zone": "Z1", "name": "Recupero", "bpm_min": 0, "bpm_max": 117},
-        {"zone": "Z2", "name": "Resistenza", "bpm_min": 118, "bpm_max": 146},
-        {"zone": "Z3", "name": "Ritmo", "bpm_min": 147, "bpm_max": 160},
-        {"zone": "Z4", "name": "Soglia", "bpm_min": 161, "bpm_max": 175},
-        {"zone": "Z5", "name": "Anaerobico", "bpm_min": 176, "bpm_max": 200},
+        {"zone": "Z1", "name": "Recupero", "bpm_min": 0, "bpm_max": z1_max},
+        {"zone": "Z2", "name": "Resistenza", "bpm_min": z1_max + 1, "bpm_max": z2_max},
+        {"zone": "Z3", "name": "Ritmo", "bpm_min": z2_max + 1, "bpm_max": z3_max},
+        {"zone": "Z4", "name": "Soglia", "bpm_min": z3_max + 1, "bpm_max": z4_max},
+        {"zone": "Z5", "name": "Anaerobico", "bpm_min": z4_max + 1, "bpm_max": user_max_hr},
     ]
-    
+
     zone_counts = {"Z1": 0, "Z2": 0, "Z3": 0, "Z4": 0, "Z5": 0}
     total_hr_runs = 0
     for r in valid_runs:
         avg_hr = r.get("avg_hr")
         if avg_hr:
             total_hr_runs += 1
-            if avg_hr <= 117:
+            if avg_hr <= z1_max:
                 zone_counts["Z1"] += 1
-            elif avg_hr <= 146:
+            elif avg_hr <= z2_max:
                 zone_counts["Z2"] += 1
-            elif avg_hr <= 160:
+            elif avg_hr <= z3_max:
                 zone_counts["Z3"] += 1
-            elif avg_hr <= 175:
+            elif avg_hr <= z4_max:
                 zone_counts["Z4"] += 1
             else:
                 zone_counts["Z5"] += 1
@@ -2397,14 +2401,14 @@ async def _get_analytics_impl():
     hr_zone_counts_4w = {"z1": 0, "z2": 0, "z3": 0, "z4": 0, "z5": 0}
     for r in recent_hr_runs:
         avg_hr = r["avg_hr"]
-        # Use absolute BPM thresholds matching the user's actual zones
-        if avg_hr < 117:
+        # Use dynamic BPM thresholds based on user's max HR
+        if avg_hr <= z1_max:
             hr_zone_counts_4w["z1"] += 1
-        elif avg_hr <= 146:
+        elif avg_hr <= z2_max:
             hr_zone_counts_4w["z2"] += 1
-        elif avg_hr <= 160:
+        elif avg_hr <= z3_max:
             hr_zone_counts_4w["z3"] += 1
-        elif avg_hr <= 175:
+        elif avg_hr <= z4_max:
             hr_zone_counts_4w["z4"] += 1
         else:
             hr_zone_counts_4w["z5"] += 1
@@ -2432,7 +2436,7 @@ async def _get_analytics_impl():
         pre_injury_at = {"hr": None, "pace": None, "date": None, "note": None}
     
     # Current AT from tempo/threshold runs (fastest runs with HR data > 20min, post-injury 2026+)
-    threshold_runs = [r for r in valid_runs if r.get("avg_hr") and r.get("duration_minutes", 0) > 20 and pace_str_to_secs(r.get("avg_pace", "9:99")) < 360 and r.get("date", "").startswith("2026")]
+    threshold_runs = [r for r in valid_runs if r.get("avg_hr") and r.get("duration_minutes", 0) > 20 and pace_str_to_secs(r.get("avg_pace", "9:99")) < 360]
     at_hr = None
     at_pace = None
     if threshold_runs:
@@ -2447,18 +2451,23 @@ async def _get_analytics_impl():
     # ---- ANAEROBIC THRESHOLD HISTORY (every 15 days) ----
     # Track: for runs at similar HR (~150bpm), what pace can you maintain?
     # This shows fitness progression: same HR effort -> faster pace = improvement
-    # Always include pre-injury reference point
-    at_history = [{
-        "period_start": "2025-11-17",
-        "period_end": "2025-11-23",
-        "avg_hr": 149,
-        "avg_pace": "4:20",
-        "best_pace": "4:20",
-        "pace_secs": 260,
-        "runs_count": 1,
-        "label": "Pre-Inf."
-    }]
-    history_start = date(2025, 11, 1)
+    # Include pre-injury reference only if user has pre_injury AT data in profile
+    at_history = []
+    if pre_injury_at and pre_injury_at.get("hr") and pre_injury_at.get("pace"):
+        pi_date = pre_injury_at.get("date", "")
+        at_history.append({
+            "period_start": pi_date or "Rif.",
+            "period_end": pi_date or "Rif.",
+            "avg_hr": pre_injury_at["hr"],
+            "avg_pace": pre_injury_at["pace"],
+            "best_pace": pre_injury_at["pace"],
+            "pace_secs": pace_str_to_secs(pre_injury_at["pace"]),
+            "runs_count": 1,
+            "label": "Rif."
+        })
+    # Start history from the earliest run date or 6 months ago
+    earliest_run_date = min((r.get("date", "") for r in valid_runs), default=None)
+    history_start = date.fromisoformat(earliest_run_date[:10]) if earliest_run_date else (today - timedelta(days=180))
     period_days = 15
     current_period_start = history_start
     target_hr_range = (140, 160)  # Zone 3-4 HR range for comparison
@@ -2610,7 +2619,9 @@ async def _get_analytics_impl():
         "goal_gap_min": goal_gap_min,
         "goal_progress_pct": goal_progress_pct,
         "target_time_str": target_time_str or "N/D",
+        "target_hm_time_str": target_time_str or "N/D",
         "current_pred_str": race_predictions.get(pred_key, {}).get("predicted_time_str", "N/D"),
+        "current_hm_pred_str": race_predictions.get(pred_key, {}).get("predicted_time_str", "N/D"),
         "weekly_volume": weekly_volume,
         "zone_distribution": zone_distribution,
         "hr_zone_distribution": hr_zone_distribution,
@@ -5251,7 +5262,10 @@ async def compute_badges() -> list:
     import math
     from datetime import date as dt_date
 
-    BADGE_START_DATE = "2026-03-23"
+    # Dynamic start date: use profile creation or first run, fallback to 1 year ago
+    _profile = await db.profile.find_one({}, {"_id": 0}) or {}
+    _first_run = await db.runs.find_one({}, {"_id": 0}, sort=[("date", 1)])
+    BADGE_START_DATE = _first_run.get("date", "") if _first_run else (dt_date.today() - timedelta(days=365)).isoformat()
 
     def _date_str(val) -> str:
         """Safely convert any date value to 'YYYY-MM-DD' string."""
