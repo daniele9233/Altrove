@@ -3,6 +3,9 @@
 # dependencies
 node_modules/
 
+# metro bundler cache
+.metro-cache/
+
 # Expo
 .expo/
 dist/
