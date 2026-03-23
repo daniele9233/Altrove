@@ -46,7 +46,7 @@ async function registerForPushNotifications() {
   }
 
   const pushToken = await Notifications.getExpoPushTokenAsync({
-    projectId: '1a7ea756-e936-4b37-b3d9-fd1e35b66331',
+    projectId: '1930258d-7039-4076-8718-348195e2000f',
   });
   try {
     await api.registerPushToken(pushToken.data);

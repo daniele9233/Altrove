@@ -1,7 +1,7 @@
 {
   "expo": {
     "name": "Altrove",
-    "slug": "frontend",
+    "slug": "altrove",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
@@ -10,7 +10,7 @@
     "newArchEnabled": true,
     "runtimeVersion": "1.0.0",
     "updates": {
-      "url": "https://u.expo.dev/a48df678-6b21-4c17-9033-76216bd17940",
+      "url": "https://u.expo.dev/1930258d-7039-4076-8718-348195e2000f",
       "enabled": true,
       "checkAutomatically": "ON_LOAD",
       "fallbackToCacheTimeout": 5000
@@ -48,7 +48,7 @@
     },
     "extra": {
       "eas": {
-        "projectId": "1a7ea756-e936-4b37-b3d9-fd1e35b66331"
+        "projectId": "1930258d-7039-4076-8718-348195e2000f"
       },
       "router": {}
     },
