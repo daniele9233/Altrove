@@ -37,6 +37,7 @@ export const api = {
     apiFetch('/ai/analyze-run', { method: 'POST', body: JSON.stringify({ run_id: runId }) }),
   getTests: () => apiFetch('/tests'),
   createTest: (test: any) => apiFetch('/tests', { method: 'POST', body: JSON.stringify(test) }),
+  adaptFromTest: (test: any) => apiFetch('/tests/adapt', { method: 'POST', body: JSON.stringify(test) }),
   getSupplements: () => apiFetch('/supplements'),
   getExercises: () => apiFetch('/exercises'),
   getProfile: () => apiFetch('/profile'),

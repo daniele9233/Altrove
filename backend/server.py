@@ -926,6 +926,106 @@ def get_test_schedule():
     """Empty test schedule — generated dynamically based on user's race date."""
     return []
 
+
+def _generate_test_schedule(plan_weeks: list) -> list:
+    """Auto-generate test schedule based on training plan phases.
+
+    Tests are placed at phase transitions and key training milestones:
+    - End of Ripresa → Cooper Test (baseline)
+    - Mid Base Aerobica → 6km Time Trial
+    - End of Sviluppo → 10km Time Trial
+    - Mid Preparazione Specifica → 6km Time Trial (threshold check)
+    - End of Picco → 10km Time Trial (pre-race validation)
+    """
+    if not plan_weeks:
+        return []
+
+    # Find phase boundaries
+    phase_weeks = {}
+    for w in plan_weeks:
+        phase = w.get("phase", "")
+        if phase not in phase_weeks:
+            phase_weeks[phase] = []
+        phase_weeks[phase].append(w)
+
+    schedule = []
+
+    # Test 1: End of Ripresa → Cooper Test
+    if "Ripresa" in phase_weeks:
+        last_ripresa = phase_weeks["Ripresa"][-1]
+        schedule.append({
+            "id": make_id(),
+            "test_type": "cooper_test",
+            "test_label": "Test di Cooper",
+            "description": "Test iniziale per stabilire il VDOT di partenza. Corri il più possibile in 12 minuti.",
+            "scheduled_date": last_ripresa["week_start"],
+            "week_number": last_ripresa["week_number"],
+            "phase": "Ripresa",
+            "completed": False,
+        })
+
+    # Test 2: Mid Base Aerobica → 6km TT
+    if "Base Aerobica" in phase_weeks:
+        ba_weeks = phase_weeks["Base Aerobica"]
+        mid_idx = len(ba_weeks) // 2
+        mid_week = ba_weeks[mid_idx]
+        schedule.append({
+            "id": make_id(),
+            "test_type": "6km_time_trial",
+            "test_label": "6km Time Trial",
+            "description": "Time trial 6km per verificare il progresso aerobico. Corri al massimo sforzo sostenibile.",
+            "scheduled_date": mid_week["week_start"],
+            "week_number": mid_week["week_number"],
+            "phase": "Base Aerobica",
+            "completed": False,
+        })
+
+    # Test 3: End of Sviluppo → 10km TT
+    if "Sviluppo" in phase_weeks:
+        last_sviluppo = phase_weeks["Sviluppo"][-1]
+        schedule.append({
+            "id": make_id(),
+            "test_type": "10km_time_trial",
+            "test_label": "10km Time Trial",
+            "description": "Test 10km per valutare la soglia e confermare il VDOT. Obiettivo: ritmo costante.",
+            "scheduled_date": last_sviluppo["week_start"],
+            "week_number": last_sviluppo["week_number"],
+            "phase": "Sviluppo",
+            "completed": False,
+        })
+
+    # Test 4: Mid Preparazione Specifica → 6km TT
+    if "Preparazione Specifica" in phase_weeks:
+        ps_weeks = phase_weeks["Preparazione Specifica"]
+        mid_idx = len(ps_weeks) // 2
+        mid_week = ps_weeks[mid_idx]
+        schedule.append({
+            "id": make_id(),
+            "test_type": "6km_time_trial",
+            "test_label": "6km Time Trial",
+            "description": "Verifica soglia: confronta con il test precedente per misurare il miglioramento.",
+            "scheduled_date": mid_week["week_start"],
+            "week_number": mid_week["week_number"],
+            "phase": "Preparazione Specifica",
+            "completed": False,
+        })
+
+    # Test 5: End of Picco → 10km TT
+    if "Picco" in phase_weeks:
+        last_picco = phase_weeks["Picco"][-1]
+        schedule.append({
+            "id": make_id(),
+            "test_type": "10km_time_trial",
+            "test_label": "10km Time Trial",
+            "description": "Test pre-gara: ultima verifica del VDOT e della forma. Il piano si adatterà di conseguenza.",
+            "scheduled_date": last_picco["week_start"],
+            "week_number": last_picco["week_number"],
+            "phase": "Picco",
+            "completed": False,
+        })
+
+    return schedule
+
 # ====== HELPER: calculate VDOT from profile PBs ======
 
 def _calculate_vdot_from_profile(profile_data):
@@ -978,23 +1078,30 @@ async def generate_plan_endpoint():
     # Calculate VDOT from PBs
     best_vdot, vdot_paces = _calculate_vdot_from_profile(profile)
 
-    # Delete existing plan
+    # Delete existing plan and test schedule
     await db.training_plan.delete_many({})
+    await db.test_schedule.delete_many({})
 
     # Generate new plan
     plan = generate_training_plan(vdot_paces=vdot_paces, profile=profile)
     if plan:
         await db.training_plan.insert_many(plan)
 
+    # Auto-generate test schedule based on plan phases
+    test_schedule = _generate_test_schedule(plan)
+    if test_schedule:
+        await db.test_schedule.insert_many(test_schedule)
+
     return {
         "status": "ok",
-        "message": f"Piano generato: {len(plan)} settimane",
+        "message": f"Piano generato: {len(plan)} settimane, {len(test_schedule)} test programmati",
         "weeks": len(plan),
         "vdot": best_vdot,
         "vdot_paces": vdot_paces,
         "level": profile.get("level", "intermedio"),
         "race_date": profile.get("race_date"),
         "max_weekly_km": profile.get("max_weekly_km"),
+        "test_schedule": len(test_schedule),
     }
 
 
@@ -1712,6 +1819,233 @@ async def create_test(test: TestCreate):
     await db.tests.insert_one(test_dict)
     test_dict.pop("_id", None)
     return test_dict
+
+
+@api_router.post("/tests/adapt")
+async def adapt_plan_from_test(test: TestCreate):
+    """Submit a test AND trigger dynamic plan adaptation.
+
+    Flow:
+    1. Save the test result
+    2. Calculate new VDOT from this test
+    3. Compare with current training VDOT
+    4. If significant change (≥0.5 VDOT): recalculate paces, adjust volume, assess feasibility
+    5. Return adaptation summary for frontend popup
+    """
+    # ── Step 1: Save test ──
+    test_dict = test.dict()
+    test_dict["id"] = make_id()
+    await db.tests.insert_one(test_dict)
+
+    # Mark scheduled test as completed if it matches
+    await db.test_schedule.update_many(
+        {"test_type": test.test_type, "completed": False},
+        {"$set": {"completed": True, "completed_date": test.date}}
+    )
+
+    # ── Step 2: Calculate VDOT from this test ──
+    new_measured_vdot = calculate_vdot_from_race(test.distance_km, test.duration_minutes)
+    if not new_measured_vdot:
+        return {
+            "adapted": False,
+            "test_id": test_dict["id"],
+            "message": "Test salvato ma impossibile calcolare il VDOT dalla distanza/durata.",
+        }
+    new_measured_vdot = round(new_measured_vdot, 1)
+
+    # ── Step 3: Compare with current VDOT ──
+    profile = await db.profile.find_one({}, {"_id": 0}) or {}
+    old_vdot = profile.get("current_vdot")
+    max_hr = profile.get("max_hr", 180)
+
+    if old_vdot is None:
+        # No VDOT yet — set directly
+        training_vdot = new_measured_vdot
+    elif new_measured_vdot > old_vdot:
+        # Improvement → Daniels 2/3 rule
+        raw_improvement = new_measured_vdot - old_vdot
+        dampened = raw_improvement * (2 / 3)
+        # Cap at +1 per mesocycle
+        last_update = profile.get("last_vdot_update")
+        if last_update:
+            days_since = (date.today() - date.fromisoformat(last_update)).days
+            if days_since < 28:
+                dampened = min(dampened, 1.0)
+        training_vdot = round(old_vdot + dampened, 1)
+    elif new_measured_vdot < old_vdot - 1.0:
+        # Regression > 1 VDOT → apply in full
+        training_vdot = new_measured_vdot
+    else:
+        training_vdot = old_vdot
+
+    vdot_change = round(training_vdot - (old_vdot or training_vdot), 1)
+    significant = abs(vdot_change) >= 0.5
+
+    # ── Step 4: Old paces (for comparison) ──
+    old_paces = vdot_training_paces(old_vdot) if old_vdot else {}
+    new_paces = vdot_training_paces(training_vdot)
+
+    result = {
+        "adapted": False,
+        "test_id": test_dict["id"],
+        "old_vdot": old_vdot,
+        "measured_vdot": new_measured_vdot,
+        "training_vdot": training_vdot,
+        "vdot_change": vdot_change,
+        "old_paces": old_paces,
+        "new_paces": new_paces,
+        "weeks_updated": 0,
+        "volume_adjustment_pct": 0,
+        "feasibility": "raggiungibile",
+        "message": "",
+    }
+
+    if not significant:
+        result["message"] = (
+            f"Test salvato. VDOT misurato: {new_measured_vdot} "
+            f"(attuale: {old_vdot or 'N/D'}). Variazione troppo piccola per adattare il piano."
+        )
+        return result
+
+    # ── Step 5: Update profile VDOT ──
+    await db.profile.update_one({}, {"$set": {
+        "current_vdot": training_vdot,
+        "last_vdot_update": date.today().isoformat(),
+    }})
+
+    # Save VO2max history point
+    await db.vo2max_history.insert_one({
+        "id": make_id(),
+        "date": date.today().isoformat(),
+        "vdot": training_vdot,
+        "measured_vdot": new_measured_vdot,
+        "based_on": f"Test {test.test_type}: {test.distance_km}km in {test.duration_minutes:.1f}min",
+        "dampened": training_vdot != new_measured_vdot,
+    })
+
+    # ── Step 6: Recalculate paces for future weeks ──
+    today_str = date.today().isoformat()
+    future_weeks = await db.training_plan.find(
+        {"week_start": {"$gte": today_str}}
+    ).to_list(200)
+
+    weeks_updated = 0
+    for week in future_weeks:
+        sessions = week.get("sessions", [])
+        changed = False
+        for s in sessions:
+            stype = s.get("type", "")
+            daniels_zone = SESSION_PACE_ZONE.get(stype)
+            if daniels_zone and daniels_zone in new_paces:
+                old_pace = s.get("target_pace")
+                new_pace = new_paces[daniels_zone]
+                if old_pace and old_pace != "max" and old_pace != new_pace:
+                    s["target_pace"] = new_pace
+                    changed = True
+        if changed:
+            await db.training_plan.update_one(
+                {"id": week["id"]},
+                {"$set": {"sessions": sessions, "vdot_based": True, "vdot_value": training_vdot}}
+            )
+            weeks_updated += 1
+
+    # ── Step 7: Volume adjustment (+2% per VDOT point gained, capped ±15%) ──
+    volume_adj_pct = 0
+    if vdot_change != 0:
+        volume_adj_pct = round(vdot_change * 2, 1)  # +2% per VDOT point
+        volume_adj_pct = max(-15, min(15, volume_adj_pct))  # Cap ±15%
+
+        if abs(volume_adj_pct) >= 1:
+            factor = 1 + (volume_adj_pct / 100)
+            max_km = profile.get("max_weekly_km", 60)
+            for week in future_weeks:
+                old_target = week.get("target_km", 0)
+                new_target = round(old_target * factor, 1)
+                new_target = min(new_target, max_km)  # Never exceed user max
+                if new_target != old_target:
+                    # Also scale individual session km
+                    sessions = week.get("sessions", [])
+                    for s in sessions:
+                        s_km = s.get("distance_km", 0)
+                        if s_km > 0:
+                            s["distance_km"] = round(s_km * factor, 1)
+                    await db.training_plan.update_one(
+                        {"id": week["id"]},
+                        {"$set": {"target_km": new_target, "sessions": sessions}}
+                    )
+
+    # ── Step 8: Feasibility assessment ──
+    race_date_str = profile.get("race_date")
+    target_time_str = profile.get("target_time")
+    feasibility = "raggiungibile"
+    feasibility_detail = ""
+
+    if race_date_str and target_time_str:
+        try:
+            race_date_obj = date.fromisoformat(race_date_str)
+            weeks_to_race = max((race_date_obj - date.today()).days // 7, 1)
+            race_goal = profile.get("race_goal", "").lower()
+
+            # Estimate required VDOT for target time
+            target_parts = target_time_str.split(":")
+            if len(target_parts) == 3:
+                target_min = int(target_parts[0]) * 60 + int(target_parts[1]) + int(target_parts[2]) / 60
+            elif len(target_parts) == 2:
+                target_min = int(target_parts[0]) + int(target_parts[1]) / 60
+            else:
+                target_min = 0
+
+            race_dist = 21.1  # Default half marathon
+            if "maratona" in race_goal and "mezza" not in race_goal:
+                race_dist = 42.195
+            elif "10" in race_goal:
+                race_dist = 10
+            elif "5" in race_goal:
+                race_dist = 5
+
+            if target_min > 0:
+                required_vdot = calculate_vdot_from_race(race_dist, target_min)
+                if required_vdot:
+                    vdot_gap = required_vdot - training_vdot
+                    # Max ~0.5 VDOT improvement per month is realistic
+                    max_possible_improvement = weeks_to_race / 4 * 0.5
+                    if vdot_gap <= 0:
+                        feasibility = "raggiungibile"
+                        feasibility_detail = f"Il tuo VDOT attuale ({training_vdot}) è già sufficiente per l'obiettivo (richiesto: {round(required_vdot, 1)})."
+                    elif vdot_gap <= max_possible_improvement:
+                        feasibility = "ambizioso"
+                        feasibility_detail = f"Servono +{round(vdot_gap, 1)} VDOT in {weeks_to_race} settimane. Possibile con costanza."
+                    else:
+                        feasibility = "molto_ambizioso"
+                        feasibility_detail = f"Servono +{round(vdot_gap, 1)} VDOT ma hai solo {weeks_to_race} settimane (max stimato: +{round(max_possible_improvement, 1)}). Considera di rivedere l'obiettivo."
+        except Exception as e:
+            logger.warning(f"Feasibility assessment error: {e}")
+
+    result["adapted"] = True
+    result["weeks_updated"] = weeks_updated
+    result["volume_adjustment_pct"] = volume_adj_pct
+    result["feasibility"] = feasibility
+    result["feasibility_detail"] = feasibility_detail
+    result["message"] = (
+        f"Piano adattato! VDOT: {old_vdot or 'N/D'} → {training_vdot} "
+        f"({'+' if vdot_change > 0 else ''}{vdot_change}). "
+        f"Ritmi aggiornati per {weeks_updated} settimane. "
+        f"Volume: {'+' if volume_adj_pct > 0 else ''}{volume_adj_pct}%. "
+        f"Obiettivo: {feasibility.replace('_', ' ')}."
+    )
+
+    # Push notification
+    try:
+        await send_push_notification(
+            f"Piano adattato dal test! VDOT {old_vdot or '?'} → {training_vdot}",
+            f"Nuovi ritmi: Easy {new_paces.get('easy', '?')}, Soglia {new_paces.get('threshold', '?')}/km"
+        )
+    except:
+        pass
+
+    logger.info(f"adapt_plan_from_test: {result['message']}")
+    return result
+
 
 @api_router.post("/ai/clear-old-analyses")
 async def clear_old_analyses():
