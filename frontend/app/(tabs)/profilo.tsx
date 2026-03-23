@@ -39,6 +39,9 @@ export default function ProfiloScreen() {
   const [dateYear, setDateYear] = useState('2026');
   const [dateMonth, setDateMonth] = useState('06');
   const [dateDay, setDateDay] = useState('15');
+  const [timeHours, setTimeHours] = useState('1');
+  const [timeMinutes, setTimeMinutes] = useState('35');
+  const [timeSeconds, setTimeSeconds] = useState('00');
   const [saving, setSaving] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [stravaCodeModal, setStravaCodeModal] = useState(false);
@@ -806,7 +809,7 @@ export default function ProfiloScreen() {
               </View>
             )}
 
-            {/* TEMPO OBIETTIVO — Dropdown basato su gara */}
+            {/* TEMPO OBIETTIVO — Selettore ore:minuti:secondi */}
             <Text style={styles.modalLabel}>TEMPO OBIETTIVO</Text>
             <TouchableOpacity
               style={[styles.modalInput, { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }]}
@@ -815,30 +818,53 @@ export default function ProfiloScreen() {
               <Text style={{ color: editTargetTime ? COLORS.text : COLORS.textMuted, fontSize: FONT_SIZES.body }}>
                 {editTargetTime || 'Seleziona tempo'}
               </Text>
-              <Ionicons name={showTimePicker ? 'chevron-up' : 'chevron-down'} size={16} color={COLORS.textMuted} />
+              <Ionicons name="time" size={16} color={COLORS.textMuted} />
             </TouchableOpacity>
             {showTimePicker && (
-              <View style={{ backgroundColor: COLORS.inputBg, borderRadius: BORDER_RADIUS.md, borderWidth: 1, borderColor: COLORS.cardBorder, marginBottom: SPACING.sm, overflow: 'hidden' }}>
-                <ScrollView style={{ maxHeight: 200 }} nestedScrollEnabled>
-                  {(editRaceGoal === '5K' ? ['0:17:00','0:18:00','0:19:00','0:20:00','0:21:00','0:22:00','0:23:00','0:24:00','0:25:00','0:26:00','0:27:00','0:28:00','0:29:00','0:30:00','0:32:00','0:35:00','0:38:00','0:40:00'] :
-                    editRaceGoal === '10K' ? ['0:35:00','0:37:00','0:38:00','0:40:00','0:42:00','0:43:00','0:45:00','0:47:00','0:48:00','0:50:00','0:52:00','0:55:00','0:58:00','1:00:00','1:05:00','1:10:00','1:15:00'] :
-                    editRaceGoal === 'Mezza Maratona' ? ['1:15:00','1:20:00','1:25:00','1:28:00','1:30:00','1:32:00','1:35:00','1:38:00','1:40:00','1:42:00','1:45:00','1:48:00','1:50:00','1:55:00','2:00:00','2:05:00','2:10:00','2:15:00','2:20:00','2:30:00'] :
-                    editRaceGoal === 'Maratona' ? ['2:45:00','2:50:00','2:55:00','3:00:00','3:05:00','3:10:00','3:15:00','3:20:00','3:25:00','3:30:00','3:35:00','3:40:00','3:45:00','3:50:00','3:55:00','4:00:00','4:10:00','4:20:00','4:30:00','4:45:00','5:00:00'] :
-                    ['0:20:00','0:25:00','0:30:00','0:35:00','0:40:00','0:45:00','0:50:00','0:55:00','1:00:00','1:10:00','1:20:00','1:30:00','1:45:00','2:00:00','2:30:00','3:00:00','3:30:00','4:00:00','4:30:00','5:00:00']
-                  ).map(t => (
-                    <TouchableOpacity
-                      key={t}
-                      onPress={() => { setEditTargetTime(t); setShowTimePicker(false); }}
-                      style={{
-                        paddingVertical: SPACING.md, paddingHorizontal: SPACING.lg,
-                        backgroundColor: editTargetTime === t ? COLORS.lime + '20' : 'transparent',
-                        borderBottomWidth: 1, borderBottomColor: COLORS.cardBorder,
-                      }}
-                    >
-                      <Text style={{ color: editTargetTime === t ? COLORS.lime : COLORS.text, fontSize: FONT_SIZES.body, fontWeight: editTargetTime === t ? '700' : '400' }}>{t}</Text>
-                    </TouchableOpacity>
-                  ))}
-                </ScrollView>
+              <View style={{ backgroundColor: COLORS.inputBg, borderRadius: BORDER_RADIUS.md, borderWidth: 1, borderColor: COLORS.cardBorder, marginBottom: SPACING.sm, padding: SPACING.md }}>
+                <View style={{ flexDirection: 'row', gap: SPACING.xs, alignItems: 'center' }}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ color: COLORS.textMuted, fontSize: FONT_SIZES.xs, marginBottom: 4, textAlign: 'center', fontWeight: '700' }}>ORE</Text>
+                    <ScrollView style={{ maxHeight: 120 }} nestedScrollEnabled showsVerticalScrollIndicator={false}>
+                      {['0','1','2','3','4','5','6'].map(h => (
+                        <TouchableOpacity key={h} onPress={() => setTimeHours(h)}
+                          style={{ paddingVertical: 6, alignItems: 'center', backgroundColor: timeHours === h ? COLORS.lime + '20' : 'transparent', borderRadius: 6 }}>
+                          <Text style={{ color: timeHours === h ? COLORS.lime : COLORS.text, fontWeight: timeHours === h ? '700' : '400', fontSize: FONT_SIZES.lg }}>{h}</Text>
+                        </TouchableOpacity>
+                      ))}
+                    </ScrollView>
+                  </View>
+                  <Text style={{ color: COLORS.textMuted, fontSize: FONT_SIZES.xl, fontWeight: '700' }}>:</Text>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ color: COLORS.textMuted, fontSize: FONT_SIZES.xs, marginBottom: 4, textAlign: 'center', fontWeight: '700' }}>MIN</Text>
+                    <ScrollView style={{ maxHeight: 120 }} nestedScrollEnabled showsVerticalScrollIndicator={false}>
+                      {Array.from({length: 60}, (_, i) => String(i).padStart(2, '0')).map(m => (
+                        <TouchableOpacity key={m} onPress={() => setTimeMinutes(m)}
+                          style={{ paddingVertical: 6, alignItems: 'center', backgroundColor: timeMinutes === m ? COLORS.lime + '20' : 'transparent', borderRadius: 6 }}>
+                          <Text style={{ color: timeMinutes === m ? COLORS.lime : COLORS.text, fontWeight: timeMinutes === m ? '700' : '400', fontSize: FONT_SIZES.lg }}>{m}</Text>
+                        </TouchableOpacity>
+                      ))}
+                    </ScrollView>
+                  </View>
+                  <Text style={{ color: COLORS.textMuted, fontSize: FONT_SIZES.xl, fontWeight: '700' }}>:</Text>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ color: COLORS.textMuted, fontSize: FONT_SIZES.xs, marginBottom: 4, textAlign: 'center', fontWeight: '700' }}>SEC</Text>
+                    <ScrollView style={{ maxHeight: 120 }} nestedScrollEnabled showsVerticalScrollIndicator={false}>
+                      {Array.from({length: 60}, (_, i) => String(i).padStart(2, '0')).map(s => (
+                        <TouchableOpacity key={s} onPress={() => setTimeSeconds(s)}
+                          style={{ paddingVertical: 6, alignItems: 'center', backgroundColor: timeSeconds === s ? COLORS.lime + '20' : 'transparent', borderRadius: 6 }}>
+                          <Text style={{ color: timeSeconds === s ? COLORS.lime : COLORS.text, fontWeight: timeSeconds === s ? '700' : '400', fontSize: FONT_SIZES.lg }}>{s}</Text>
+                        </TouchableOpacity>
+                      ))}
+                    </ScrollView>
+                  </View>
+                </View>
+                <TouchableOpacity
+                  onPress={() => { setEditTargetTime(`${timeHours}:${timeMinutes}:${timeSeconds}`); setShowTimePicker(false); }}
+                  style={{ marginTop: SPACING.md, backgroundColor: COLORS.lime, borderRadius: BORDER_RADIUS.full, paddingVertical: SPACING.sm, alignItems: 'center' }}
+                >
+                  <Text style={{ color: COLORS.limeDark, fontWeight: '800', fontSize: FONT_SIZES.sm }}>CONFERMA TEMPO</Text>
+                </TouchableOpacity>
               </View>
             )}
 

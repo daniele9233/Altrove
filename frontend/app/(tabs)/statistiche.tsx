@@ -139,8 +139,8 @@ export default function StatisticheScreen() {
           <View style={styles.goalRow}>
             <View style={styles.goalStat}>
               <Text style={styles.goalStatLabel}>TARGET</Text>
-              <Text style={styles.goalStatValue}>{analytics?.target_time_str || 'N/D'}</Text>
-              <Text style={styles.goalStatSub}>{analytics?.profile?.target_pace ? analytics.profile.target_pace + '/km' : '--'}</Text>
+              <Text style={styles.goalStatValue}>{data?.target_time_str || 'N/D'}</Text>
+              <Text style={styles.goalStatSub}>{data?.profile?.target_pace ? data.profile.target_pace + '/km' : '--'}</Text>
             </View>
             <View style={styles.goalArrow}>
               <Ionicons name="arrow-forward" size={24} color={COLORS.textMuted} />
