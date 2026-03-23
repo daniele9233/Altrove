@@ -662,21 +662,43 @@ def generate_training_plan(vdot_paces=None, profile=None):
             return []
 
     # --- User parameters ---
-    max_km = profile.get("max_weekly_km") or 50
     level = profile.get("level", "intermedio")
+    race_goal = profile.get("race_goal", "").lower()
 
     # Scale km ranges based on level
     level_factor = {"principiante": 0.7, "intermedio": 1.0, "avanzato": 1.2}.get(level, 1.0)
 
+    # Scale km base by race distance — marathon needs ~1.6x the volume of a half marathon
+    if "maratona" in race_goal and "mezza" not in race_goal:
+        distance_factor = 1.6  # Full marathon
+        default_max_km = 80
+    elif "mezza" in race_goal or "21" in race_goal:
+        distance_factor = 1.0  # Half marathon (reference)
+        default_max_km = 55
+    elif "10" in race_goal:
+        distance_factor = 0.8  # 10K
+        default_max_km = 45
+    elif "5" in race_goal:
+        distance_factor = 0.65  # 5K
+        default_max_km = 40
+    elif "ultra" in race_goal or "trail" in race_goal:
+        distance_factor = 1.8  # Ultra/trail
+        default_max_km = 90
+    else:
+        distance_factor = 1.0  # Default: half marathon baseline
+        default_max_km = 50
+
+    max_km = profile.get("max_weekly_km") or default_max_km
+
     # --- Phase distribution (proportional to available weeks) ---
-    # The 6 phases with relative proportions (total = 38 reference)
+    # km_base scaled by distance_factor for the race goal
     phase_defs = [
-        {"name": "Ripresa", "pct": 0.10, "km_base": (20, 30), "desc": "Ripresa graduale e adattamento"},
-        {"name": "Base Aerobica", "pct": 0.22, "km_base": (30, 40), "desc": "Costruzione della base aerobica"},
-        {"name": "Sviluppo", "pct": 0.22, "km_base": (38, 48), "desc": "Sviluppo della resistenza specifica"},
-        {"name": "Preparazione Specifica", "pct": 0.22, "km_base": (45, 55), "desc": "Lavori specifici per la gara obiettivo"},
-        {"name": "Picco", "pct": 0.16, "km_base": (48, 55), "desc": "Fase di picco e rifinitura"},
-        {"name": "Tapering", "pct": 0.08, "km_base": (38, 22), "desc": "Scarico pre-gara"},
+        {"name": "Ripresa", "pct": 0.10, "km_base": (round(20 * distance_factor), round(30 * distance_factor)), "desc": "Ripresa graduale e adattamento"},
+        {"name": "Base Aerobica", "pct": 0.22, "km_base": (round(30 * distance_factor), round(40 * distance_factor)), "desc": "Costruzione della base aerobica"},
+        {"name": "Sviluppo", "pct": 0.22, "km_base": (round(38 * distance_factor), round(48 * distance_factor)), "desc": "Sviluppo della resistenza specifica"},
+        {"name": "Preparazione Specifica", "pct": 0.22, "km_base": (round(45 * distance_factor), round(55 * distance_factor)), "desc": "Lavori specifici per la gara obiettivo"},
+        {"name": "Picco", "pct": 0.16, "km_base": (round(48 * distance_factor), round(55 * distance_factor)), "desc": "Fase di picco e rifinitura"},
+        {"name": "Tapering", "pct": 0.08, "km_base": (round(38 * distance_factor), round(22 * distance_factor)), "desc": "Scarico pre-gara"},
     ]
 
     # Distribute weeks proportionally (minimum 1 week per phase except Tapering=2-3)
@@ -2470,7 +2492,7 @@ async def _get_analytics_impl():
     history_start = date.fromisoformat(earliest_run_date[:10]) if earliest_run_date else (today - timedelta(days=180))
     period_days = 15
     current_period_start = history_start
-    target_hr_range = (140, 160)  # Zone 3-4 HR range for comparison
+    target_hr_range = (round(max_hr * 0.78), round(max_hr * 0.88))  # Dynamic zone 3-4 based on user's max HR
     
     while current_period_start <= today:
         period_end = current_period_start + timedelta(days=period_days - 1)
@@ -2540,12 +2562,14 @@ async def _get_analytics_impl():
         hr = r.get("avg_hr", 0)
         if week_start not in weekly_pace_data:
             weekly_pace_data[week_start] = {"easy": [], "tempo": [], "fast": []}
-        # Classify by HR zone or pace
-        if hr and hr < 150:
+        # Classify by HR zone (dynamic based on user's max HR) or pace
+        hr_easy_max = round(max_hr * 0.75)
+        hr_tempo_max = round(max_hr * 0.88)
+        if hr and hr < hr_easy_max:
             weekly_pace_data[week_start]["easy"].append(pace_s)
-        elif hr and hr < 168:
+        elif hr and hr < hr_tempo_max:
             weekly_pace_data[week_start]["tempo"].append(pace_s)
-        elif hr and hr >= 168:
+        elif hr and hr >= hr_tempo_max:
             weekly_pace_data[week_start]["fast"].append(pace_s)
         elif pace_s > 330:  # slower than 5:30 = easy
             weekly_pace_data[week_start]["easy"].append(pace_s)
@@ -5265,7 +5289,11 @@ async def compute_badges() -> list:
     # Dynamic start date: use profile creation or first run, fallback to 1 year ago
     _profile = await db.profile.find_one({}, {"_id": 0}) or {}
     _first_run = await db.runs.find_one({}, {"_id": 0}, sort=[("date", 1)])
-    BADGE_START_DATE = _first_run.get("date", "") if _first_run else (dt_date.today() - timedelta(days=365)).isoformat()
+    _first_date = _first_run.get("date", "") if _first_run else None
+    if _first_date:
+        BADGE_START_DATE = _first_date if isinstance(_first_date, str) else _first_date.strftime("%Y-%m-%d") if hasattr(_first_date, 'strftime') else str(_first_date)[:10]
+    else:
+        BADGE_START_DATE = (dt_date.today() - timedelta(days=365)).isoformat()
 
     def _date_str(val) -> str:
         """Safely convert any date value to 'YYYY-MM-DD' string."""

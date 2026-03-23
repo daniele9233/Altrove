@@ -33,6 +33,7 @@ export default function PianoScreen() {
   const [adaptationStatus, setAdaptationStatus] = useState<any>(null);
   const [adapting, setAdapting] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [calendarOffset, setCalendarOffset] = useState(0);
 
   useFocusEffect(
     useCallback(() => {
@@ -140,6 +141,7 @@ export default function PianoScreen() {
   /* ── Calendar data ── */
   const getCalendarData = () => {
     const now = new Date();
+    now.setMonth(now.getMonth() + calendarOffset);
     const year = now.getFullYear();
     const month = now.getMonth();
     const firstDay = new Date(year, month, 1);
@@ -251,9 +253,17 @@ export default function PianoScreen() {
           }
         >
           <View style={styles.calendarContainer}>
-            <Text style={styles.calendarMonth}>
-              {calendarData.monthName} {calendarData.year}
-            </Text>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: SPACING.md, paddingHorizontal: SPACING.sm }}>
+              <TouchableOpacity onPress={() => setCalendarOffset(calendarOffset - 1)} style={{ padding: SPACING.sm }}>
+                <Ionicons name="chevron-back" size={24} color={COLORS.text} />
+              </TouchableOpacity>
+              <Text style={styles.calendarMonth}>
+                {calendarData.monthName} {calendarData.year}
+              </Text>
+              <TouchableOpacity onPress={() => setCalendarOffset(calendarOffset + 1)} style={{ padding: SPACING.sm }}>
+                <Ionicons name="chevron-forward" size={24} color={COLORS.text} />
+              </TouchableOpacity>
+            </View>
             <View style={styles.calendarHeader}>
               {['Lun', 'Mar', 'Mer', 'Gio', 'Ven', 'Sab', 'Dom'].map(d => (
                 <Text key={d} style={styles.calendarDayHeader}>{d}</Text>
