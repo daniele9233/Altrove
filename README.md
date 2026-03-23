@@ -73,7 +73,7 @@ Generazione dinamica del piano, AI Coach adattivo, integrazione Strava.
 
 | Campo | Valore |
 |---|---|
-| **Repository** | https://github.com/daniele9233/CORRALEJO-2026.git |
+| **Repository** | https://github.com/daniele9233/Altrove.git |
 | **Branch principale** | `main` |
 | **Visibilità** | Public |
 | **Package Android** | `com.kikkoderiso.altrove` |
@@ -82,7 +82,7 @@ Generazione dinamica del piano, AI Coach adattivo, integrazione Strava.
 
 ### Struttura Repository
 ```
-CORRALEJO-2026/
+Altrove/
 ├── backend/
 │   ├── server.py              # Server FastAPI (tutto in un file)
 │   ├── requirements.txt       # Dipendenze Python (20 pacchetti)
@@ -111,7 +111,8 @@ CORRALEJO-2026/
 │   │   └── strava-callback.tsx# OAuth callback Strava
 │   ├── src/
 │   │   ├── api.ts             # Client API (tutte le chiamate)
-│   │   └── theme.ts           # Tema colori, spacing, font
+│   │   ├── theme.ts           # Tema colori, spacing, font
+│   │   └── onboarding.tsx     # Flusso onboarding primo lancio (5 step)
 │   ├── app.json               # Configurazione Expo
 │   ├── eas.json               # Configurazione EAS Build
 │   ├── package.json           # Dipendenze Node
@@ -156,7 +157,7 @@ https://dani-backend-ea0s.onrender.com
 | Collezione | Descrizione |
 |---|---|
 | `profile` | Profilo atleta (singolo documento) |
-| `training_weeks` | Settimane del piano di allenamento (38 settimane) |
+| `training_weeks` | Settimane del piano di allenamento (generate dinamicamente) |
 | `runs` | Corse registrate (manuali + Strava) |
 | `tests` | Test fisici programmati e completati |
 | `supplements` | Piano integratori |
@@ -166,12 +167,14 @@ https://dani-backend-ea0s.onrender.com
 
 ### Logica Principale nel Backend
 
-#### Generazione Piano di Allenamento
-- 38 settimane dal 23 Marzo 2026 al 6 Dicembre 2026
-- 6 fasi di periodizzazione: Ripresa → Base Aerobica → Sviluppo → Prep. Specifica → Picco → Tapering
+#### Generazione Piano di Allenamento (Dinamico)
+- Numero settimane calcolato automaticamente dalla data odierna alla data gara dell'utente
+- 6 fasi di periodizzazione distribuite proporzionalmente (10%+22%+22%+22%+16%+8%): Ripresa → Base Aerobica → Sviluppo → Prep. Specifica → Picco → Tapering
+- Scaling per livello: principiante (0.7x), intermedio (1.0x), avanzato (1.2x)
+- Volume settimanale limitato dal max km/settimana impostato dall'utente
 - Settimane di recupero ogni 3-4 settimane (-30% volume)
-- KM settimanali progressivi: da 20km a ~65km al picco
-- Ogni settimana ha 5-7 sessioni con tipo, distanza target, passo, durata
+- Ogni settimana ha 7 sessioni con tipo, distanza target, passo, durata
+- Minimo 8 settimane richieste per generare un piano
 
 #### Calcolo VDOT (Jack Daniels)
 - Stima VO2max dai migliori risultati su distanze 4-21km
@@ -241,7 +244,8 @@ Impellizzeri et al. (2020) hanno dimostrato che il mathematical coupling (il car
 
 ### 1. 🏠 Dashboard (Home)
 La schermata principale con panoramica completa:
-- **Countdown gara**: giorni/ore/minuti alla Mezza Maratona di Fuerteventura
+- **Countdown gara**: giorni alla gara obiettivo dell'utente
+- **Motto**: *"sic transit gloria mundi"* in corsivo elegante
 - **Card sessione di oggi**: tipo, titolo, descrizione, distanza/passo/durata target
 - **Bottone "SEGNA FATTO"**: completa la sessione di oggi con un tap
 - **Timeline settimanale**: 7 giorni con pallini colorati per tipo sessione
@@ -261,7 +265,7 @@ Lista completa delle corse registrate:
 - **FAB (+)**: aggiunge nuova corsa manualmente
 
 ### 3. 📅 Piano di Allenamento
-Vista completa del piano di 38 settimane:
+Vista completa del piano di allenamento:
 - **Barra fasi**: 6 fasi colorate con indicatore settimana corrente
 - **Doppia vista** (toggle):
   - **Lista**: navigatore settimane, strip 7 giorni, lista sessioni
@@ -274,8 +278,8 @@ Vista completa del piano di 38 settimane:
 
 ### 4. 📊 Statistiche
 Analytics avanzate sulle prestazioni:
-- **Gauge VO2max**: valore corrente vs target (per passo 4:30/km)
-- **Card obiettivo mezza**: tempo target 1:35:00, tempo predetto attuale, gap, % progresso
+- **Gauge VO2max**: valore corrente vs target (dinamico dal profilo)
+- **Card obiettivo gara**: tempo target, tempo predetto attuale, gap, % progresso
 - **Soglia anaerobica**: dati correnti
 - **Best efforts**: migliori prestazioni per distanza
 - **Volume settimanale**: distribuzione km per zona
@@ -336,8 +340,8 @@ Analisi completa di una corsa:
 - **Supercompensazione**: tipo adattamento (neuromuscolare/metabolico/strutturale), barra maturazione, data beneficio massimo
 - **Grafico Frequenza Cardiaca** (stile Strava): area rossa HR stream nel tempo, linea media bianca, asse X con tempo, asse Y con bpm. Mostra drift cardiaco a colpo d'occhio. Dati scaricati da Strava Streams API (downsampled a 200 punti).
 - **Analisi AI** (Claude 4 Haiku primario, Gemini fallback):
-  - 9 sezioni strutturate: intro, dati corsa, classificazione, utilità per obiettivo, positivi, lacune, reality check con tempi stimati, consigli tecnici, voto/10
-  - Persona "Renato Canova", risposte sempre uniche (temperature 0.9)
+  - Analisi strutturata: dati corsa, classificazione, utilità per obiettivo, positivi, lacune, consigli tecnici, voto/10
+  - AI Coach adattivo, risposte sempre diverse (temperature 0.9), dati iniettati dal profilo utente
   - Raccomandazioni con workout specifici
 
 ### 9. 📋 Dettaglio Sessione
@@ -349,7 +353,7 @@ Dettagli di una sessione pianificata:
 
 ### 10. 📈 Periodizzazione
 Grafico a barre del piano di allenamento:
-- 38 barre colorate per fase (una per settimana)
+- Barre colorate per fase (una per settimana, numero dinamico)
 - Altezza barra = KM target settimanali
 - Settimana corrente evidenziata
 - Legenda fasi con intervalli settimane
@@ -430,8 +434,8 @@ Gestione OAuth Strava:
 - **Priorità 1**: Claude 4 Haiku (Anthropic) — risposte uniche, personalizzate, mai template (temperature 0.9)
 - **Priorità 2**: Google Gemini (fallback gratuito)
 - **Priorità 3**: Analisi algoritmica avanzata (fallback offline)
-- Persona: "Renato Canova" — allenatore italiano, tono diretto e schietto
-- 9 sezioni strutturate: intro, dati, classificazione, utilità obiettivo, positivi, gap, reality check, consigli tecnici, voto
+- AI Coach adattivo con prompt dinamico — dati atleta, obiettivo, piano iniettati dal profilo
+- Analisi strutturata: dati, classificazione, utilità obiettivo, positivi, gap, consigli tecnici, voto
 - Confronto con sessione pianificata, VDOT, settimane alla gara
 - Funziona anche per corse extra fuori dal piano
 
@@ -571,14 +575,21 @@ Per ogni distanza (5km, 10km, 15km, 21.1km):
 - Bottone "SEGNA FATTO" per completare con un tap
 - Countdown alla gara in tempo reale
 
-### 7. Gestione Infortunio e Recupero
-- Piano integratori specifico per recupero
-- Protocollo esercizi di rinforzo muscolare
-- Fase "Ripresa" iniziale nel piano di allenamento
-- Monitoraggio progressi post-infortunio
+### 7. Onboarding Primo Lancio
+- Flusso guidato a 5 step al primo avvio dell'app
+- **Step 1**: Profilo base (nome, età, peso, altezza) + motto *"sic transit gloria mundi"*
+- **Step 2**: Frequenza cardiaca massima (con stima 220-età)
+- **Step 3**: Obiettivo gara (distanza, data, tempo/passo target)
+- **Step 4**: Livello (principiante/intermedio/avanzato) + km/settimana max
+- **Step 5**: Riepilogo + generazione automatica piano
+- Stato persistito con AsyncStorage — mostrato solo al primo lancio
 
-### 8. Periodizzazione Visuale
-- Grafico a barre completo del piano 38 settimane
+### 8. Integratori ed Esercizi
+- Sezioni configurabili (inizialmente vuote)
+- Gestibili dall'utente per il proprio recupero/performance
+
+### 9. Periodizzazione Visuale
+- Grafico a barre completo del piano (numero settimane dinamico)
 - Colori per fase con legenda
 - Statistiche aggregate per fase
 
@@ -595,7 +606,8 @@ Base URL: `https://dani-backend-ea0s.onrender.com/api`
 ### Inizializzazione
 | Metodo | Endpoint | Descrizione |
 |---|---|---|
-| POST | `/seed` | Popola database con dati iniziali (profilo, corse, piano, integratori, esercizi, test) |
+| POST | `/seed` | Crea profilo vuoto iniziale |
+| POST | `/generate-plan` | Genera/rigenera piano di allenamento dal profilo corrente |
 
 ### Dashboard
 | Metodo | Endpoint | Descrizione |
@@ -797,14 +809,16 @@ Quando l'utente preme "Sync Strava":
 ## 📆 Piano di Allenamento
 
 ### Fasi di Periodizzazione
-| # | Fase | Settimane | KM/sett | Obiettivo |
-|---|---|---|---|---|
-| 1 | 🟢 Ripresa | 1-4 | 20-30 | Ritorno graduale post-infortunio |
-| 2 | 🔵 Base Aerobica | 5-14 | 30-45 | Costruire base aerobica solida |
-| 3 | 🟡 Sviluppo | 15-22 | 40-55 | Aumentare volume e intensità |
-| 4 | 🟠 Prep. Specifica | 23-30 | 50-65 | Lavori specifici mezza maratona |
-| 5 | 🔴 Picco | 31-35 | 55-65 | Massima forma, ritmo gara |
-| 6 | ⚪ Tapering | 36-38 | 35-20 | Scarico pre-gara |
+| # | Fase | % Piano | Obiettivo |
+|---|---|---|---|
+| 1 | 🟢 Ripresa | 10% | Ripresa graduale e adattamento |
+| 2 | 🔵 Base Aerobica | 22% | Costruire base aerobica solida |
+| 3 | 🟡 Sviluppo | 22% | Aumentare volume e intensità |
+| 4 | 🟠 Prep. Specifica | 22% | Lavori specifici gara obiettivo |
+| 5 | 🔴 Picco | 16% | Massima forma, ritmo gara |
+| 6 | ⚪ Tapering | 8% | Scarico pre-gara |
+
+*Il numero di settimane per fase viene calcolato dinamicamente in base alla distanza tra oggi e la data gara. Volume scalato per livello (principiante 0.7x, intermedio 1.0x, avanzato 1.2x) e limitato dal max km/settimana dell'utente.*
 
 ### Tipi di Sessione
 | Tipo | Icona | Frequenza | Descrizione |
@@ -910,7 +924,7 @@ npx expo run:android
 ## 🔮 Prossimi Sviluppi
 
 - [ ] **Shoe tracker** — km per scarpa da Strava, alert a 600km per cambio
-- [ ] **Elevation gain tracking** — Dislivello settimanale (utile per Fuerteventura, terreno ondulato)
+- [ ] **Elevation gain tracking** — Dislivello settimanale per terreni ondulati
 - [ ] **Confronto diretto** — Sovrapporre due corse sulla stessa distanza per vedere il progresso
 - [x] ~~**Heatmap settimane**~~ — Implementato come "DNA della Corsa" (Heatmap Genetico)
 - [ ] **Race Pace Simulator** — Previsione HR a un dato passo gara basata sui dati reali
@@ -922,7 +936,7 @@ npx expo run:android
 - [x] **Decoupling cardiaco (Pa:Hr)** — Drift FC tra 1ª e 2ª metà corsa (Friel). Solo su corse a passo costante (CV<10%). Verde <3.5%, arancione 3.5-5%, rosso >5%
 - [x] **Distribuzione zone HR** — Barre Z1-Z5 ultime 4 settimane con Polarization Score e badge 80/20 (Seiler 2010)
 - [x] **Auto-sync Strava** — Sincronizzazione automatica all'apertura app (grafici sempre aggiornati)
-- [x] **AI Coach "Renato Canova"** — Analisi corse con Google Gemini come allenatore di fama mondiale, tono naturale, mai template, calcola settimane alla gara, conosce profilo atleta
+- [x] **AI Coach adattivo** — Analisi corse con Claude Haiku / Gemini fallback, tono naturale, mai template, calcola settimane alla gara, dati profilo iniettati dinamicamente
 - [x] **Best Efforts con medaglie** — 🥇🥈🥉 per i record personali con push notification su nuovo PR
 - [x] **auto_adapt_plan() scientifico** — 5 modelli peer-reviewed: Impellizzeri 2020 (no ACWR), ACSM 10%, Foster monotonia, Seiler polarizzazione, Mujika tapering
 - [x] **Splits per km** — Passo dentro la barra, HR a destra, subtitle passo medio, no overlap
@@ -939,7 +953,7 @@ npx expo run:android
 - [x] **Rilevamento ripetute** — Banner automatico su corse con alta variabilità passo (CV >15%)
 - [x] **Previsioni gara con trend** — Frecce verdi/rosse con secondi di miglioramento/peggioramento per distanza. VDOT calcolato con validazione rigorosa: pace tra 2:30-9:00/km, validazione individuale ogni split, cap VDOT 65, decay 0.4/settimana per inattività, rolling window 8 settimane
 - [x] **Touch tooltip su grafici** — Tutti i grafici in Progressi supportano touch-and-drag per vedere i valori
-- [x] **Zone HR corrette** — Soglie assolute BPM (non % del max) per distribuzione accurata: Z1<117, Z2 117-146, Z3 147-160, Z4 161-175, Z5>175
+- [x] **Zone HR corrette** — Soglie BPM calcolate dalla FC max del profilo utente (non più hardcoded)
 - [x] **Resync dettagli Strava** — Endpoint per re-fetch cadenza, splits, best efforts per corse esistenti
 - [x] **EAS Updates (OTA)** — Aggiornamenti over-the-air configurati (`eas update` senza rebuild APK)
 - [x] **Logo Altrove** — Icona app con runner stilizzato + sfondo gradient (adaptive icon Android)
@@ -960,7 +974,7 @@ npx expo run:android
 
 - [x] **Supercompensazione** — Pagina dedicata con curva educativa, Grafico del Futuro (proiezione 14gg con picco), Barra di Maturazione (stato % per allenamento), Invest & Cash Out (Golden Day), Training ROI (portafoglio biologico). Endpoint `GET /api/supercompensation`
 - [x] **Supercompensazione nel dettaglio corsa** — Ogni corsa mostra tipo adattamento (neuromuscolare/metabolico/strutturale), barra maturazione %, data beneficio massimo
-- [x] **AI Coach Claude 4 Haiku** — Migrato da Gemini a Claude 4 Haiku come AI primario. Temperature 0.9 per risposte sempre diverse. Persona "Renato Canova". Fallback: Gemini → algoritmo
+- [x] **AI Coach Claude 4 Haiku** — Migrato da Gemini a Claude 4 Haiku come AI primario. Temperature 0.9 per risposte sempre diverse. Prompt dinamico dal profilo. Fallback: Gemini → algoritmo
 - [x] **Fitness & Freshness grafico migliorato** — Aggiunta linea Forma Fisica (TSB) verde/rossa con area sfumata. Touch interattivo con tooltip (data + 3 valori). Date allineate su X
 - [x] **Badge Passerotto (leggendario)** — Card hero separata con bordo dorato, checklist 2 condizioni (5K < 20min, 10K < 4:15/km), barra progresso dorata
 - [x] **Frase motivazionale dashboard** — "Tutti vogliono andare in paradiso ma nessuno è disposto a morire per arrivarci"
@@ -973,6 +987,25 @@ npx expo run:android
 - [x] **AI auto-rigenerazione** — GET /runs/{id} rigenera automaticamente analisi vecchie (gemini/fallback) con Claude quando la key è disponibile
 - [x] **Custom Launcher Icon** — Icona runner personalizzata per adaptive icon Android 8+ (foreground/background/legacy/round) in tutte le densità (mdpi→xxxhdpi). Generata da runner.png con safe zone 25%
 - [x] **Rimossa frase dashboard** — Tolta "Tutti vogliono andare in paradiso..."
+- [x] **White-label Altrove** — Fork completo: rimossi tutti i dati personali, profilo vuoto, piano dinamico, AI Coach generico, onboarding 5 step, branding "Altrove", motto *"sic transit gloria mundi"*
+
+---
+
+## 🔄 White-Label: da CORRALEJO-2026 a Altrove
+
+Altrove è un fork white-label di [CORRALEJO-2026](https://github.com/daniele9233/CORRALEJO-2026). Tutte le personalizzazioni specifiche sono state rimosse:
+
+| Cosa | Prima (CORRALEJO) | Dopo (Altrove) |
+|---|---|---|
+| Profilo | Dati hardcoded (età 40, peso 68, FC 179) | Vuoto, configurabile via onboarding |
+| Obiettivo | Mezza Maratona Fuerteventura, 4:30/km, 1:35:00 | Qualsiasi gara/distanza/target |
+| Piano | 38 settimane fisse (Mar-Dic 2026) | Generato dinamicamente da data gara |
+| AI Coach | Persona "Renato Canova", riferimenti specifici | Coach generico, prompt dinamico da profilo |
+| Seed data | 6 supplements, 8 exercises, 47 settimane km | Tutto vuoto |
+| Branding | "Corralejo 2026", scheme `corralejo://` | "Altrove", scheme `altrove://` |
+| Package | `com.kikkoderiso.corralejo` | `com.kikkoderiso.altrove` |
+| Backend URL | `corralejo-backend.onrender.com` | `dani-backend-ea0s.onrender.com` |
+| Primo lancio | Dritto alla dashboard | Onboarding 5 step guidato |
 
 ---
 
@@ -982,4 +1015,4 @@ Progetto privato per uso personale.
 
 ---
 
-*Sviluppato per la Mezza Maratona di Fuerteventura 2026*
+*sic transit gloria mundi*
