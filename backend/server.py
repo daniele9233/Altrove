@@ -2142,11 +2142,20 @@ async def _get_analytics_impl():
 
     # Filter valid runs
     valid_runs = [r for r in runs if r.get("distance_km", 0) > 0.5 and r.get("avg_pace")]
+    logger.info(f"Analytics: total_runs_db={len(runs)}, valid_runs={len(valid_runs)}, max_hr={max_hr}")
+    if valid_runs:
+        sample = valid_runs[0]
+        logger.info(f"Analytics sample run: date={sample.get('date')}, dist={sample.get('distance_km')}, pace={sample.get('avg_pace')}, hr={sample.get('avg_hr')}, dur={sample.get('duration_minutes')}")
 
     # ---- PACE TO SECONDS HELPER ----
     def pace_str_to_secs(p):
-        parts = p.split(":")
-        return int(parts[0]) * 60 + int(parts[1]) if len(parts) == 2 else 999
+        if not p or not isinstance(p, str) or ":" not in p:
+            return 999
+        try:
+            parts = p.split(":")
+            return int(parts[0]) * 60 + int(parts[1]) if len(parts) >= 2 else 999
+        except (ValueError, IndexError):
+            return 999
 
     # ---- VO2MAX ESTIMATION (Jack Daniels) ----
     # Find best efforts at different distances from ALL runs
@@ -2495,7 +2504,7 @@ async def _get_analytics_impl():
         avg_pace_s = sum(pace_str_to_secs(r["avg_pace"]) for r in top_efforts) / len(top_efforts)
         at_pace = f"{int(avg_pace_s // 60)}:{int(avg_pace_s % 60):02d}"
 
-    # Fallback: if no HR data, estimate AT from pace-only (fastest sustained runs > 20 min)
+    # Fallback 1: if no HR data, estimate AT from pace-only (fastest sustained runs > 20 min)
     if not at_hr:
         sustained_runs = [r for r in valid_runs if r.get("duration_minutes", 0) > 20 and pace_str_to_secs(r.get("avg_pace", "9:99")) < 480]
         if sustained_runs:
@@ -2503,10 +2512,35 @@ async def _get_analytics_impl():
             top_efforts = sorted_by_pace[:5]
             avg_pace_s = sum(pace_str_to_secs(r["avg_pace"]) for r in top_efforts) / len(top_efforts)
             at_pace = f"{int(avg_pace_s // 60)}:{int(avg_pace_s % 60):02d}"
-            # Estimate AT HR from ~85% of max HR
             at_hr = round(max_hr * 0.85)
 
-    current_at = {"hr": at_hr, "pace": at_pace} if at_pace else None
+    # Fallback 2: if still nothing, use ANY run > 10 min
+    if not at_hr and not at_pace:
+        any_sustained = [r for r in valid_runs if r.get("duration_minutes", 0) > 10 and pace_str_to_secs(r.get("avg_pace", "9:99")) < 600]
+        if any_sustained:
+            sorted_by_pace = sorted(any_sustained, key=lambda r: pace_str_to_secs(r.get("avg_pace", "9:99")))
+            top_efforts = sorted_by_pace[:min(5, len(sorted_by_pace))]
+            avg_pace_s = sum(pace_str_to_secs(r["avg_pace"]) for r in top_efforts) / len(top_efforts)
+            at_pace = f"{int(avg_pace_s // 60)}:{int(avg_pace_s % 60):02d}"
+            at_hr = round(max_hr * 0.85)
+
+    # Fallback 3: if NO runs at all, estimate from profile target_pace
+    if not at_hr and not at_pace:
+        target_pace = profile.get("target_pace") if profile else None
+        if target_pace and ":" in target_pace:
+            tp_secs = pace_str_to_secs(target_pace)
+            # AT pace is typically ~15-20s/km slower than race pace
+            at_secs = tp_secs + 15
+            at_pace = f"{int(at_secs // 60)}:{int(at_secs % 60):02d}"
+            at_hr = round(max_hr * 0.85)
+        else:
+            # Absolute fallback: use 85% max HR and generic pace
+            at_hr = round(max_hr * 0.85)
+            at_pace = "5:30"
+
+    current_at = {"hr": at_hr, "pace": at_pace}
+    logger.info(f"Analytics AT: hr={at_hr}, pace={at_pace}, threshold_runs_hr={len(threshold_runs_hr)}")
+    logger.info(f"Analytics zones: total_hr_runs={total_hr_runs}, zone_counts={zone_counts}")
 
     # ---- ANAEROBIC THRESHOLD HISTORY (every 15 days) ----
     # Track: for runs at similar HR (~150bpm), what pace can you maintain?
@@ -2546,12 +2580,11 @@ async def _get_analytics_impl():
             and period_start_str <= r.get("date", "") <= period_end_str
         ]
 
-        # Fallback: if no HR-matched runs, use sustained runs (>15 min, pace < 8:00/km) in this period
+        # Fallback: if no HR-matched runs, use ANY runs > 5 min in this period
         if not period_runs:
             period_runs = [
                 r for r in valid_runs
-                if r.get("duration_minutes", 0) > 15
-                and pace_str_to_secs(r.get("avg_pace", "9:99")) < 480
+                if r.get("duration_minutes", 0) > 5
                 and period_start_str <= r.get("date", "") <= period_end_str
             ]
 
@@ -2701,6 +2734,7 @@ async def _get_analytics_impl():
             "pre_injury": pre_injury_at,
             "history": at_history
         },
+        "debug_counts": {"valid_runs": len(valid_runs), "at_history_len": len(at_history), "zone_total": total_hr_runs, "pace_prog_len": len(pace_progression)},
         "best_efforts": {k: {"distance": v["distance_km"], "pace": v["avg_pace"], "time": v["duration_minutes"], "date": v["date"], "avg_hr": v.get("avg_hr"), "max_hr": v.get("max_hr")} for k, v in best_efforts.items()},
         "totals": {"total_km": total_km, "total_time_hours": round(total_time / 60, 1), "total_runs": total_runs, "recent_30d_km": recent_km},
         "current_training_paces": current_training_paces,
@@ -2723,10 +2757,13 @@ async def adapt_training_plan():
     
     # Calculate average pace from recent runs
     def pace_to_secs(pace_str):
-        if not pace_str or ':' not in pace_str:
+        if not pace_str or not isinstance(pace_str, str) or ':' not in pace_str:
             return 999
-        parts = pace_str.split(':')
-        return int(parts[0]) * 60 + int(parts[1])
+        try:
+            parts = pace_str.split(':')
+            return int(parts[0]) * 60 + int(parts[1])
+        except (ValueError, IndexError):
+            return 999
     
     recent_paces = [pace_to_secs(r["avg_pace"]) for r in recent_runs]
     avg_recent_pace = sum(recent_paces) / len(recent_paces)
