@@ -5689,11 +5689,10 @@ async def compute_badges() -> list:
         progress = 0
         target = bd.get("target", 1)
 
-        try:
-            # ---- DISTANCE MILESTONES ----
-            if bid.startswith("dist_"):
-                progress = total_km
-                unlocked = total_km >= target
+        # ---- DISTANCE MILESTONES ----
+        if bid.startswith("dist_"):
+            progress = total_km
+            unlocked = total_km >= target
 
         # ---- CONSISTENCY ----
         elif bid == "week_perfect":
@@ -6190,11 +6189,6 @@ async def compute_badges() -> list:
             progress = (1 if has_5k_sub20 else 0) + (1 if has_10k_sub415 else 0)
             target = 2
             unlocked = both
-
-        except Exception as badge_err:
-            logger.warning(f"Badge '{bid}' compute error: {badge_err}")
-            unlocked = False
-            progress = 0
 
         # Preserve unlock date or set it
         prev = existing.get(bid, {})
