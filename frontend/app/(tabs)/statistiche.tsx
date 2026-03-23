@@ -260,6 +260,15 @@ export default function StatisticheScreen() {
           </View>
         </View>
 
+        {/* Debug info — rimuovere dopo troubleshooting */}
+        {data?.debug_counts && (
+          <View style={{ marginHorizontal: SPACING.xl, marginBottom: SPACING.md, padding: SPACING.sm, backgroundColor: '#1a1a2e', borderRadius: 8, borderWidth: 1, borderColor: '#333' }}>
+            <Text style={{ color: '#888', fontSize: 10, fontFamily: 'monospace' }}>
+              DEBUG: runs={data.debug_counts.valid_runs} | at_hist={data.debug_counts.at_history_len} | zones={data.debug_counts.zone_total} | pace_prog={data.debug_counts.pace_prog_len}
+            </Text>
+          </View>
+        )}
+
         {/* Weekly Volume Bars - Last 8 weeks with details */}
         <SectionTitle icon="bar-chart" title="VOLUME SETTIMANALE" />
         <View style={styles.chartCard}>
