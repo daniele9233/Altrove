@@ -52,7 +52,10 @@ SESSION_TYPE_HR_ZONES = {
 SESSION_PACE_ZONE = {
     "corsa_lenta": "easy",
     "lungo": "easy",
+    "lungo_spec": "easy",      # base pace easy, but includes marathon-pace sections
     "progressivo": "threshold",
+    "medio": "marathon",       # marathon/goal pace runs
+    "soglia": "threshold",     # threshold/tempo runs
     "ripetute": "interval",
     "ripetute_salita": None,   # max effort, no target pace
     "test": None,
@@ -623,19 +626,37 @@ def get_monday(d):
 
 DAYS_IT = ["Lunedì", "Martedì", "Mercoledì", "Giovedì", "Venerdì", "Sabato", "Domenica"]
 
+def _calculate_weekly_volumes(current_km, peak_km, weeks_to_peak, max_km):
+    """Calculate weekly volumes using ACSM 10% rule with scarico every 4th week.
+
+    Reference: ACSM Guidelines for Exercise Testing and Prescription (2018)
+    - Max +10% per week or +5km (whichever is smaller)
+    - Every 4th week = scarico (-30% volume)
+    """
+    volumes = []
+    km = current_km
+
+    for week in range(weeks_to_peak):
+        if (week + 1) % 4 == 0:  # every 4th week = scarico
+            volumes.append(round(km * 0.70, 1))  # -30%
+        else:
+            increment = min(km * 0.10, 5.0)  # max +10% or +5km
+            km = min(km + increment, peak_km, max_km)
+            volumes.append(round(km, 1))
+
+    return volumes
+
+
 def generate_training_plan(vdot_paces=None, profile=None):
     """Generate a dynamic training plan based on user profile.
 
-    The plan adapts to:
-    - race_date: from user profile (when is the race?)
-    - start_date: today or custom start
-    - total weeks: calculated from start → race_date
-    - max_weekly_km: from user profile (caps volume)
-    - level: principiante/intermedio/avanzato (scales intensity)
-    - vdot_paces: if available, overrides hardcoded paces
+    Architecture based on:
+    - Daniels, J. (2005). Daniels' Running Formula — VDOT paces
+    - Pfitzinger, P. (2001). Advanced Marathoning — periodization
+    - ACSM (2018). Guidelines — 10% volume rule
+    - Mujika & Padilla (2003). Tapering strategies — 40-60% volume reduction
 
-    The 6 phases of periodization are distributed proportionally
-    across the available weeks. Minimum 8 weeks required.
+    6 phases: Ripresa/Base → Costruzione → Sviluppo → Prep.Specifica → Picco → Tapering
     """
     if not profile:
         profile = {}
@@ -664,95 +685,108 @@ def generate_training_plan(vdot_paces=None, profile=None):
     # --- User parameters ---
     level = profile.get("level", "intermedio")
     race_goal = profile.get("race_goal", "").lower()
-
-    # Scale km ranges based on level
     level_factor = {"principiante": 0.7, "intermedio": 1.0, "avanzato": 1.2}.get(level, 1.0)
 
-    # Scale km base by race distance — marathon needs ~1.6x the volume of a half marathon
+    # Race distance scaling (Pfitzinger periodization)
     if "maratona" in race_goal and "mezza" not in race_goal:
-        distance_factor = 1.6  # Full marathon
+        distance_factor = 1.6
         default_max_km = 80
+        start_km = round(30 * level_factor)
+        peak_km = round(75 * level_factor)
     elif "mezza" in race_goal or "21" in race_goal:
-        distance_factor = 1.0  # Half marathon (reference)
-        default_max_km = 55
+        distance_factor = 1.0
+        default_max_km = 60
+        start_km = round(25 * level_factor)
+        peak_km = round(55 * level_factor)
     elif "10" in race_goal:
-        distance_factor = 0.8  # 10K
-        default_max_km = 45
-    elif "5" in race_goal:
-        distance_factor = 0.65  # 5K
-        default_max_km = 40
-    elif "ultra" in race_goal or "trail" in race_goal:
-        distance_factor = 1.8  # Ultra/trail
-        default_max_km = 90
-    else:
-        distance_factor = 1.0  # Default: half marathon baseline
+        distance_factor = 0.8
         default_max_km = 50
+        start_km = round(20 * level_factor)
+        peak_km = round(45 * level_factor)
+    elif "5" in race_goal:
+        distance_factor = 0.65
+        default_max_km = 40
+        start_km = round(18 * level_factor)
+        peak_km = round(38 * level_factor)
+    elif "ultra" in race_goal or "trail" in race_goal:
+        distance_factor = 1.8
+        default_max_km = 100
+        start_km = round(35 * level_factor)
+        peak_km = round(85 * level_factor)
+    else:
+        distance_factor = 1.0
+        default_max_km = 55
+        start_km = round(25 * level_factor)
+        peak_km = round(50 * level_factor)
 
     max_km = profile.get("max_weekly_km") or default_max_km
+    peak_km = min(peak_km, max_km)
+    start_km = min(start_km, peak_km)
 
-    # --- Phase distribution (proportional to available weeks) ---
-    # km_base scaled by distance_factor for the race goal
+    # --- Phase distribution (proportional to total weeks) ---
     phase_defs = [
-        {"name": "Ripresa", "pct": 0.10, "km_base": (round(20 * distance_factor), round(30 * distance_factor)), "desc": "Ripresa graduale e adattamento"},
-        {"name": "Base Aerobica", "pct": 0.22, "km_base": (round(30 * distance_factor), round(40 * distance_factor)), "desc": "Costruzione della base aerobica"},
-        {"name": "Sviluppo", "pct": 0.22, "km_base": (round(38 * distance_factor), round(48 * distance_factor)), "desc": "Sviluppo della resistenza specifica"},
-        {"name": "Preparazione Specifica", "pct": 0.22, "km_base": (round(45 * distance_factor), round(55 * distance_factor)), "desc": "Lavori specifici per la gara obiettivo"},
-        {"name": "Picco", "pct": 0.16, "km_base": (round(48 * distance_factor), round(55 * distance_factor)), "desc": "Fase di picco e rifinitura"},
-        {"name": "Tapering", "pct": 0.08, "km_base": (round(38 * distance_factor), round(22 * distance_factor)), "desc": "Scarico pre-gara"},
+        {"name": "Ripresa",                "pct": 0.15, "desc": "Ripresa graduale e adattamento"},
+        {"name": "Base Aerobica",           "pct": 0.20, "desc": "Costruzione della base aerobica con corsa facile e lungo crescente"},
+        {"name": "Sviluppo",                "pct": 0.20, "desc": "Sviluppo resistenza specifica: soglia e medio"},
+        {"name": "Preparazione Specifica",  "pct": 0.20, "desc": "Lavori a ritmo gara e lungo specifico"},
+        {"name": "Picco",                   "pct": 0.12, "desc": "Picco di intensità, volume leggermente ridotto"},
+        {"name": "Tapering",                "pct": 0.13, "desc": "Scarico pre-gara: -40/60% volume, mantieni intensità"},
     ]
 
-    # Distribute weeks proportionally (minimum 1 week per phase except Tapering=2-3)
+    # Distribute weeks
     phases = []
     remaining_weeks = total_weeks
     for i, pd in enumerate(phase_defs):
         if i == len(phase_defs) - 1:
-            # Tapering gets remaining (min 2, max 3)
             w = min(max(remaining_weeks, 2), 3)
         else:
             w = max(1, round(total_weeks * pd["pct"]))
-            w = min(w, remaining_weeks - (len(phase_defs) - i - 1))  # Ensure remaining phases get at least 1
-
-        # Scale km by level factor and cap to max_weekly_km
-        km_start = min(round(pd["km_base"][0] * level_factor, 1), max_km)
-        km_end = min(round(pd["km_base"][1] * level_factor, 1), max_km)
-        if pd["name"] == "Tapering":
-            km_end = round(km_start * 0.55, 1)  # Tapering reduces to ~55%
-
-        phases.append({
-            "name": pd["name"],
-            "weeks": w,
-            "km_range": (km_start, km_end),
-            "desc": pd["desc"],
-        })
+            w = min(w, remaining_weeks - (len(phase_defs) - i - 1))
+        phases.append({"name": pd["name"], "weeks": w, "desc": pd["desc"]})
         remaining_weeks -= w
 
-    # Build recovery week set (every 4 weeks)
-    recovery_weeks = set(range(4, total_weeks + 1, 4))
+    # --- Volume progression with ACSM 10% rule ---
+    # Calculate weeks to peak (all phases except Tapering)
+    weeks_before_taper = sum(p["weeks"] for p in phases if p["name"] != "Tapering")
+    taper_weeks = phases[-1]["weeks"]
 
+    # Build volume curve: ramp up to peak, then taper down
+    ramp_volumes = _calculate_weekly_volumes(start_km, peak_km, weeks_before_taper, max_km)
+
+    # Tapering: reduce 40-60% progressively (Mujika & Padilla 2003)
+    peak_volume = ramp_volumes[-1] if ramp_volumes else peak_km
+    taper_volumes = []
+    for tw in range(taper_weeks):
+        reduction = 0.60 + (0.40 - 0.60) * (tw / max(taper_weeks - 1, 1))  # 60% → 40% of peak
+        taper_volumes.append(round(peak_volume * reduction, 1))
+
+    all_volumes = ramp_volumes + taper_volumes
+
+    # --- Generate weeks ---
     weeks = []
     current_date = start_date
     week_num = 1
+    volume_idx = 0
 
     for phase in phases:
-        km_start, km_end = phase["km_range"]
         for i in range(phase["weeks"]):
-            progress = i / max(phase["weeks"] - 1, 1)
-            target_km = round(km_start + (km_end - km_start) * progress, 1)
-            # Cap to user's max_weekly_km
+            target_km = all_volumes[volume_idx] if volume_idx < len(all_volumes) else start_km
             target_km = min(target_km, max_km)
             week_start = current_date
             week_end = current_date + timedelta(days=6)
 
-            # Apply recovery week reduction
-            is_recovery = week_num in recovery_weeks
-            if is_recovery and phase["name"] not in ["Tapering", "Ripresa"]:
-                target_km = round(target_km * 0.65, 1)
+            # Detect scarico (every 4th week, automatic from volume curve)
+            is_recovery = (week_num % 4 == 0) and phase["name"] not in ["Tapering", "Ripresa"]
 
-            sessions = generate_week_sessions(phase["name"], week_num, target_km, week_start, i, phase["weeks"], is_recovery, paces=vdot_paces)
+            sessions = generate_week_sessions(
+                phase["name"], week_num, target_km, week_start,
+                i, phase["weeks"], is_recovery,
+                paces=vdot_paces, race_goal=race_goal
+            )
 
             week_notes = get_week_notes(phase["name"], week_num, i)
             if is_recovery:
-                week_notes = "⚡ SETTIMANA DI SCARICO - Recupero attivo per prevenire infortuni. " + week_notes
+                week_notes = "SETTIMANA DI SCARICO - Recupero attivo per prevenire infortuni. " + week_notes
 
             weeks.append({
                 "id": make_id(),
@@ -769,90 +803,125 @@ def generate_training_plan(vdot_paces=None, profile=None):
 
             current_date += timedelta(days=7)
             week_num += 1
+            volume_idx += 1
 
-    logger.info(f"Training plan generated: {len(weeks)} weeks, level={level}, max_km={max_km}, race={race_date_str}")
+    logger.info(f"Training plan generated: {len(weeks)} weeks, level={level}, max_km={max_km}, race={race_date_str}, start_km={start_km}, peak_km={peak_km}")
     return weeks
 
-def generate_week_sessions(phase, week_num, target_km, week_start, phase_week, total_phase_weeks, is_recovery=False, paces=None):
-    """Generate sessions for a week. If paces dict is provided (from VDOT), overrides hardcoded paces."""
+def generate_week_sessions(phase, week_num, target_km, week_start, phase_week, total_phase_weeks, is_recovery=False, paces=None, race_goal=""):
+    """Generate sessions for a week with VDOT-based paces in descriptions.
+
+    All paces come from Daniels' VDOT calculation. Descriptions reference
+    the actual training paces so the athlete sees correct targets.
+    """
+    # Default paces (fallback if VDOT not available)
+    p = paces or {
+        "easy": "5:30",
+        "marathon": "4:50",
+        "threshold": "4:20",
+        "interval": "3:55",
+        "repetition": "3:40",
+    }
+
+    # Is this a marathon-distance goal?
+    rg = race_goal.lower() if race_goal else ""
+    is_marathon = "maratona" in rg and "mezza" not in rg
+    is_half = "mezza" in rg or "21" in rg
+
+    # Max long run km based on race
+    if is_marathon:
+        max_long = 35
+    elif is_half:
+        max_long = 24
+    else:
+        max_long = 18
+
     sessions = []
 
     if phase == "Ripresa":
         templates = [
-            {"day": 0, "type": "riposo", "title": "Riposo / Rinforzo", "desc": "Esercizi di rinforzo muscolare + stretching", "km": 0, "pace": None, "dur": 40},
-            {"day": 1, "type": "corsa_lenta", "title": "Corsa Lenta", "desc": "Corsa facile in zona aerobica", "km": round(target_km * 0.2, 1), "pace": "5:40", "dur": None},
-            {"day": 2, "type": "rinforzo", "title": "Rinforzo Muscolare", "desc": "Protocollo rinforzo: calf raise, squat, clamshell", "km": 0, "pace": None, "dur": 45},
-            {"day": 3, "type": "corsa_lenta", "title": "Corsa Media", "desc": "Corsa a ritmo medio-facile", "km": round(target_km * 0.25, 1), "pace": "5:30", "dur": None},
-            {"day": 4, "type": "riposo", "title": "Riposo", "desc": "Recupero completo o cyclette leggera 30min", "km": 0, "pace": None, "dur": 0},
-            {"day": 5, "type": "corsa_lenta", "title": "Corsa Facile", "desc": "Corsa facile + allunghi", "km": round(target_km * 0.2, 1), "pace": "5:40", "dur": None},
-            {"day": 6, "type": "lungo", "title": "Lungo Lento", "desc": "Corsa lunga a ritmo confortevole", "km": round(target_km * 0.35, 1), "pace": "5:45", "dur": None},
+            {"day": 0, "type": "riposo",       "title": "Riposo / Rinforzo",  "desc": "Esercizi di rinforzo muscolare + stretching", "km": 0, "pace": None, "dur": 40},
+            {"day": 1, "type": "corsa_lenta",   "title": "Corsa Lenta",       "desc": f"Corsa facile in zona aerobica @ {p['easy']}/km", "km": round(target_km * 0.20, 1), "pace": p["easy"], "dur": None},
+            {"day": 2, "type": "rinforzo",      "title": "Rinforzo Muscolare","desc": "Protocollo rinforzo: calf raise, squat, clamshell", "km": 0, "pace": None, "dur": 45},
+            {"day": 3, "type": "corsa_lenta",   "title": "Corsa Facile",      "desc": f"Corsa a ritmo facile @ {p['easy']}/km + 4 allunghi", "km": round(target_km * 0.25, 1), "pace": p["easy"], "dur": None},
+            {"day": 4, "type": "riposo",        "title": "Riposo",            "desc": "Recupero completo o cyclette leggera 30min", "km": 0, "pace": None, "dur": 0},
+            {"day": 5, "type": "corsa_lenta",   "title": "Corsa Facile",      "desc": f"Corsa facile @ {p['easy']}/km + strides", "km": round(target_km * 0.20, 1), "pace": p["easy"], "dur": None},
+            {"day": 6, "type": "lungo",         "title": "Lungo Lento",       "desc": f"Corsa lunga a ritmo confortevole @ {p['easy']}/km", "km": min(round(target_km * 0.35, 1), 14), "pace": p["easy"], "dur": None},
         ]
+
     elif phase == "Base Aerobica":
         templates = [
-            {"day": 0, "type": "corsa_lenta", "title": "Corsa Lenta", "desc": "Corsa di recupero", "km": round(target_km * 0.15, 1), "pace": "5:30", "dur": None},
-            {"day": 1, "type": "ripetute", "title": "Ripetute", "desc": "Riscaldamento 2km + 6x1000m a 4:40 (rec 2min) + defaticamento", "km": round(target_km * 0.2, 1), "pace": "4:40", "dur": None},
-            {"day": 2, "type": "rinforzo", "title": "Rinforzo + Cyclette", "desc": "Rinforzo muscolare + 30min cyclette leggera", "km": 0, "pace": None, "dur": 60},
-            {"day": 3, "type": "progressivo", "title": "Progressivo", "desc": "Corsa progressiva: inizia a 5:30, chiudi a 4:50", "km": round(target_km * 0.2, 1), "pace": "5:10", "dur": None},
-            {"day": 4, "type": "riposo", "title": "Riposo", "desc": "Recupero completo", "km": 0, "pace": None, "dur": 0},
-            {"day": 5, "type": "corsa_lenta", "title": "Corsa Facile", "desc": "Corsa facile + 6 allunghi progressivi", "km": round(target_km * 0.15, 1), "pace": "5:30", "dur": None},
-            {"day": 6, "type": "lungo", "title": "Lungo", "desc": "Corsa lunga progressiva", "km": round(target_km * 0.3, 1), "pace": "5:20", "dur": None},
+            {"day": 0, "type": "corsa_lenta",   "title": "Corsa Lenta",       "desc": f"Corsa di recupero @ {p['easy']}/km", "km": round(target_km * 0.15, 1), "pace": p["easy"], "dur": None},
+            {"day": 1, "type": "soglia",         "title": "Soglia",            "desc": f"Risc. 2km + 3x10min @ {p['threshold']}/km (rec 2min) + defaticamento", "km": round(target_km * 0.20, 1), "pace": p["threshold"], "dur": None},
+            {"day": 2, "type": "rinforzo",       "title": "Rinforzo + Cyclette","desc": "Rinforzo muscolare + 30min cyclette leggera", "km": 0, "pace": None, "dur": 60},
+            {"day": 3, "type": "corsa_lenta",   "title": "Corsa Facile",      "desc": f"Corsa facile @ {p['easy']}/km + 6 allunghi progressivi", "km": round(target_km * 0.18, 1), "pace": p["easy"], "dur": None},
+            {"day": 4, "type": "riposo",         "title": "Riposo",            "desc": "Recupero completo", "km": 0, "pace": None, "dur": 0},
+            {"day": 5, "type": "corsa_lenta",   "title": "Corsa Pre-Lungo",   "desc": f"Corsa facile @ {p['easy']}/km", "km": round(target_km * 0.15, 1), "pace": p["easy"], "dur": None},
+            {"day": 6, "type": "lungo",         "title": "Lungo",             "desc": f"Corsa lunga progressiva @ {p['easy']}/km", "km": min(round(target_km * 0.32, 1), max_long), "pace": p["easy"], "dur": None},
         ]
+
     elif phase == "Sviluppo":
-        # Aggiungiamo ripetute in salita per stimolo neuromuscolare
         templates = [
-            {"day": 0, "type": "corsa_lenta", "title": "Corsa Lenta", "desc": "Recupero attivo", "km": round(target_km * 0.13, 1), "pace": "5:25", "dur": None},
-            {"day": 1, "type": "ripetute_salita", "title": "Ripetute in Salita", "desc": "2km riscaldamento + 8x60sec salita forte (rec discesa) + 2km defaticamento. Grande stimolo neuromuscolare!", "km": round(target_km * 0.18, 1), "pace": "max", "dur": None},
-            {"day": 2, "type": "cyclette", "title": "Cyclette Recupero", "desc": "45min cyclette + core stability", "km": 0, "pace": None, "dur": 45},
-            {"day": 3, "type": "ripetute", "title": "Ripetute Medie", "desc": "2km riscaldamento + 5x2000m a 4:35 (rec 2:30) + defaticamento", "km": round(target_km * 0.22, 1), "pace": "4:35", "dur": None},
-            {"day": 4, "type": "rinforzo", "title": "Rinforzo + Riposo", "desc": "Rinforzo muscolare specifico runner", "km": 0, "pace": None, "dur": 45},
-            {"day": 5, "type": "corsa_lenta", "title": "Corsa Pre-Lungo", "desc": "Corsa facile + allunghi", "km": round(target_km * 0.12, 1), "pace": "5:20", "dur": None},
-            {"day": 6, "type": "lungo", "title": "Lungo Progressivo", "desc": "Lungo con ultimi 3km a ritmo gara", "km": min(round(target_km * 0.35, 1), 20), "pace": "5:10", "dur": None},
+            {"day": 0, "type": "corsa_lenta",    "title": "Corsa Lenta",      "desc": f"Recupero attivo @ {p['easy']}/km", "km": round(target_km * 0.13, 1), "pace": p["easy"], "dur": None},
+            {"day": 1, "type": "ripetute",        "title": "Ripetute",         "desc": f"Risc. 2km + 5x2000m @ {p['interval']}/km (rec 2:30) + defaticamento", "km": round(target_km * 0.20, 1), "pace": p["interval"], "dur": None},
+            {"day": 2, "type": "cyclette",        "title": "Cyclette Recupero","desc": "45min cyclette + core stability", "km": 0, "pace": None, "dur": 45},
+            {"day": 3, "type": "soglia",          "title": "Soglia",           "desc": f"Risc. 2km + 4x8min @ {p['threshold']}/km (rec 2min) + defaticamento", "km": round(target_km * 0.20, 1), "pace": p["threshold"], "dur": None},
+            {"day": 4, "type": "rinforzo",        "title": "Rinforzo + Riposo","desc": "Rinforzo muscolare specifico runner", "km": 0, "pace": None, "dur": 45},
+            {"day": 5, "type": "corsa_lenta",    "title": "Corsa Pre-Lungo",  "desc": f"Corsa facile @ {p['easy']}/km + allunghi", "km": round(target_km * 0.12, 1), "pace": p["easy"], "dur": None},
+            {"day": 6, "type": "lungo",          "title": "Lungo Progressivo","desc": f"Lungo con ultimi 3km a ritmo soglia @ {p['threshold']}/km", "km": min(round(target_km * 0.35, 1), max_long), "pace": p["easy"], "dur": None},
         ]
+
     elif phase == "Preparazione Specifica":
-        # Lungo fino a 22km e ripetute in salita alternate
-        long_km = min(round(target_km * 0.38, 1), 22)  # Max 22km
-        templates = [
-            {"day": 0, "type": "corsa_lenta", "title": "Corsa Lenta", "desc": "Recupero", "km": round(target_km * 0.12, 1), "pace": "5:20", "dur": None},
-            {"day": 1, "type": "ripetute", "title": "Ripetute Gara", "desc": "2km riscaldamento + 4x3000m a 4:30 (rec 3min) + defaticamento", "km": round(target_km * 0.24, 1), "pace": "4:30", "dur": None},
-            {"day": 2, "type": "cyclette", "title": "Cyclette + Core", "desc": "50min cyclette moderata + core stability", "km": 0, "pace": None, "dur": 50},
-            {"day": 3, "type": "ripetute_salita", "title": "Ripetute Salita", "desc": "2km riscaldamento + 10x45sec salita forte (rec discesa) + 2km defaticamento. Forza esplosiva!", "km": round(target_km * 0.15, 1), "pace": "max", "dur": None},
-            {"day": 4, "type": "riposo", "title": "Riposo", "desc": "Recupero completo + stretching", "km": 0, "pace": None, "dur": 0},
-            {"day": 5, "type": "corsa_lenta", "title": "Corsa Facile", "desc": "Corsa facile + 8 allunghi", "km": round(target_km * 0.11, 1), "pace": "5:15", "dur": None},
-            {"day": 6, "type": "lungo", "title": f"Lungo Specifico {long_km}km", "desc": f"Lungo {long_km}km con ultimi 5km a ritmo gara. Simulazione pre-gara!", "km": long_km, "pace": "5:00", "dur": None},
-        ]
+        long_km = min(round(target_km * 0.38, 1), max_long)
+        if is_marathon:
+            templates = [
+                {"day": 0, "type": "corsa_lenta",    "title": "Corsa Lenta",      "desc": f"Recupero @ {p['easy']}/km", "km": round(target_km * 0.12, 1), "pace": p["easy"], "dur": None},
+                {"day": 1, "type": "ripetute",        "title": "Ripetute Gara",    "desc": f"Risc. 2km + 6x1000m @ {p['interval']}/km (rec 3min) + defaticamento", "km": round(target_km * 0.15, 1), "pace": p["interval"], "dur": None},
+                {"day": 2, "type": "riposo",          "title": "Riposo",           "desc": "Recupero completo", "km": 0, "pace": None, "dur": 0},
+                {"day": 3, "type": "medio",           "title": "Medio",            "desc": f"15km con 10km @ ritmo maratona {p['marathon']}/km", "km": round(target_km * 0.22, 1), "pace": p["marathon"], "dur": None},
+                {"day": 4, "type": "corsa_lenta",    "title": "Corsa Facile",     "desc": f"Corsa facile @ {p['easy']}/km + 8 allunghi", "km": round(target_km * 0.11, 1), "pace": p["easy"], "dur": None},
+                {"day": 5, "type": "riposo",          "title": "Riposo",           "desc": "Recupero + stretching", "km": 0, "pace": None, "dur": 0},
+                {"day": 6, "type": "lungo_spec",      "title": f"Lungo Specifico {long_km}km", "desc": f"Lungo {long_km}km con ultimi 8km @ marathon pace {p['marathon']}/km", "km": long_km, "pace": p["easy"], "dur": None},
+            ]
+        else:
+            templates = [
+                {"day": 0, "type": "corsa_lenta",    "title": "Corsa Lenta",      "desc": f"Recupero @ {p['easy']}/km", "km": round(target_km * 0.12, 1), "pace": p["easy"], "dur": None},
+                {"day": 1, "type": "ripetute",        "title": "Ripetute Gara",    "desc": f"Risc. 2km + 4x3000m @ {p['interval']}/km (rec 3min) + defaticamento", "km": round(target_km * 0.24, 1), "pace": p["interval"], "dur": None},
+                {"day": 2, "type": "cyclette",        "title": "Cyclette + Core",  "desc": "50min cyclette moderata + core stability", "km": 0, "pace": None, "dur": 50},
+                {"day": 3, "type": "soglia",          "title": "Soglia",           "desc": f"Risc. 2km + 20min @ {p['threshold']}/km continui + defaticamento", "km": round(target_km * 0.20, 1), "pace": p["threshold"], "dur": None},
+                {"day": 4, "type": "riposo",          "title": "Riposo",           "desc": "Recupero completo + stretching", "km": 0, "pace": None, "dur": 0},
+                {"day": 5, "type": "corsa_lenta",    "title": "Corsa Facile",     "desc": f"Corsa facile @ {p['easy']}/km + 8 allunghi", "km": round(target_km * 0.11, 1), "pace": p["easy"], "dur": None},
+                {"day": 6, "type": "lungo_spec",      "title": f"Lungo Specifico {long_km}km", "desc": f"Lungo {long_km}km con ultimi 5km a ritmo gara", "km": long_km, "pace": p["easy"], "dur": None},
+            ]
+
     elif phase == "Picco":
-        # Lungo fino a 24km, massima specificità
-        long_km = min(round(target_km * 0.42, 1), 24)  # Max 24km
+        long_km = min(round(target_km * 0.40, 1), max_long)
         templates = [
-            {"day": 0, "type": "corsa_lenta", "title": "Corsa Lenta", "desc": "Recupero attivo", "km": round(target_km * 0.12, 1), "pace": "5:15", "dur": None},
-            {"day": 1, "type": "ripetute", "title": "Ripetute Veloci", "desc": "2km riscaldamento + 8x1000m a 4:15 (rec 2min) + defaticamento", "km": round(target_km * 0.20, 1), "pace": "4:15", "dur": None},
-            {"day": 2, "type": "cyclette", "title": "Cyclette Recupero", "desc": "40min cyclette leggera", "km": 0, "pace": None, "dur": 40},
-            {"day": 3, "type": "ripetute_salita", "title": "Ripetute Salita Brevi", "desc": "2km riscaldamento + 6x30sec salita esplosiva (rec discesa) + 2km defaticamento", "km": round(target_km * 0.12, 1), "pace": "max", "dur": None},
-            {"day": 4, "type": "rinforzo", "title": "Rinforzo Leggero", "desc": "Rinforzo muscolare mantenimento", "km": 0, "pace": None, "dur": 35},
-            {"day": 5, "type": "corsa_lenta", "title": "Corsa Pre-Lungo", "desc": "Corsa facile + allunghi", "km": round(target_km * 0.10, 1), "pace": "5:15", "dur": None},
-            {"day": 6, "type": "lungo", "title": f"Lungo di Picco {long_km}km", "desc": f"Lungo {long_km}km: ultimi 8km a ritmo gara. Ultimo test prima del tapering!", "km": long_km, "pace": "4:55", "dur": None},
+            {"day": 0, "type": "corsa_lenta",    "title": "Corsa Lenta",      "desc": f"Recupero attivo @ {p['easy']}/km", "km": round(target_km * 0.12, 1), "pace": p["easy"], "dur": None},
+            {"day": 1, "type": "ripetute",        "title": "Ripetute Veloci",  "desc": f"Risc. 2km + 8x1000m @ {p['interval']}/km (rec 2min) + defaticamento", "km": round(target_km * 0.20, 1), "pace": p["interval"], "dur": None},
+            {"day": 2, "type": "riposo",          "title": "Riposo",           "desc": "Recupero completo", "km": 0, "pace": None, "dur": 0},
+            {"day": 3, "type": "soglia",          "title": "Soglia Forte",     "desc": f"Risc. 2km + 25min @ {p['threshold']}/km + defaticamento", "km": round(target_km * 0.18, 1), "pace": p["threshold"], "dur": None},
+            {"day": 4, "type": "rinforzo",        "title": "Rinforzo Leggero", "desc": "Rinforzo muscolare mantenimento", "km": 0, "pace": None, "dur": 35},
+            {"day": 5, "type": "corsa_lenta",    "title": "Corsa Pre-Lungo",  "desc": f"Corsa facile @ {p['easy']}/km + allunghi", "km": round(target_km * 0.10, 1), "pace": p["easy"], "dur": None},
+            {"day": 6, "type": "lungo_spec",      "title": f"Lungo di Picco {long_km}km", "desc": f"Lungo {long_km}km: ultimi 8km a ritmo gara @ {p['marathon']}/km. Ultimo test prima del tapering!", "km": long_km, "pace": p["easy"], "dur": None},
         ]
-    else:  # Tapering
-        progress = phase_week / max(total_phase_weeks - 1, 1)
+
+    else:  # Tapering (Mujika & Padilla 2003: reduce volume 40-60%, maintain intensity)
         templates = [
-            {"day": 0, "type": "corsa_lenta", "title": "Corsa Lenta", "desc": "Recupero", "km": round(target_km * 0.15, 1), "pace": "5:20", "dur": None},
-            {"day": 1, "type": "ripetute", "title": "Ripetute Brevi", "desc": "Riscaldamento + 4x800m a 4:20 (rec 2min)", "km": round(target_km * 0.2, 1), "pace": "4:20", "dur": None},
-            {"day": 2, "type": "riposo", "title": "Riposo", "desc": "Recupero completo", "km": 0, "pace": None, "dur": 0},
-            {"day": 3, "type": "corsa_lenta", "title": "Corsa Facile", "desc": "Corsa leggera + 4 allunghi", "km": round(target_km * 0.2, 1), "pace": "5:15", "dur": None},
-            {"day": 4, "type": "riposo", "title": "Riposo", "desc": "Recupero + stretching", "km": 0, "pace": None, "dur": 0},
-            {"day": 5, "type": "corsa_lenta", "title": "Shakeout Run", "desc": "20min corsa leggerissima", "km": round(target_km * 0.12, 1), "pace": "5:30", "dur": None},
-            {"day": 6, "type": "lungo", "title": "Lungo Ridotto", "desc": "Lungo ridotto a ritmo confortevole", "km": round(target_km * 0.33, 1), "pace": "5:10", "dur": None},
+            {"day": 0, "type": "corsa_lenta",    "title": "Corsa Lenta",      "desc": f"Recupero @ {p['easy']}/km", "km": round(target_km * 0.18, 1), "pace": p["easy"], "dur": None},
+            {"day": 1, "type": "ripetute",        "title": "Ripetute Brevi",   "desc": f"Risc. 2km + 4x800m @ {p['interval']}/km (rec 2min) + defaticamento. Mantieni velocita!", "km": round(target_km * 0.20, 1), "pace": p["interval"], "dur": None},
+            {"day": 2, "type": "riposo",          "title": "Riposo",           "desc": "Recupero completo", "km": 0, "pace": None, "dur": 0},
+            {"day": 3, "type": "corsa_lenta",    "title": "Corsa Facile",     "desc": f"Corsa leggera @ {p['easy']}/km + 4 allunghi", "km": round(target_km * 0.20, 1), "pace": p["easy"], "dur": None},
+            {"day": 4, "type": "riposo",          "title": "Riposo",           "desc": "Recupero + stretching", "km": 0, "pace": None, "dur": 0},
+            {"day": 5, "type": "corsa_lenta",    "title": "Shakeout Run",     "desc": f"20min corsa leggerissima @ {p['easy']}/km", "km": round(target_km * 0.12, 1), "pace": p["easy"], "dur": None},
+            {"day": 6, "type": "lungo",          "title": "Lungo Ridotto",    "desc": f"Lungo ridotto @ {p['easy']}/km a ritmo confortevole", "km": round(target_km * 0.30, 1), "pace": p["easy"], "dur": None},
         ]
 
     for t in templates:
         session_date = week_start + timedelta(days=t["day"])
 
-        # Override pace with VDOT-derived pace if available
+        # Use the pace from the template (already VDOT-based)
         final_pace = t["pace"]
-        if paces and t["pace"] and t["pace"] != "max":
-            daniels_zone = SESSION_PACE_ZONE.get(t["type"])
-            if daniels_zone and daniels_zone in paces:
-                final_pace = paces[daniels_zone]
 
         sessions.append({
             "day": DAYS_IT[t["day"]],

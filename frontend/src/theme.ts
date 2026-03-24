@@ -55,9 +55,12 @@ export const BORDER_RADIUS = {
 export const SESSION_COLORS: Record<string, string> = {
   corsa_lenta: '#3b82f6',
   lungo: '#8b5cf6',
+  lungo_spec: '#a855f7',       // Lungo specifico (con sezioni a ritmo gara)
   ripetute: '#ef4444',
-  ripetute_salita: '#f59e0b',  // Amber for hill repeats
+  ripetute_salita: '#f59e0b',
   progressivo: '#f97316',
+  medio: '#fb923c',            // Ritmo maratona / ritmo gara
+  soglia: '#f97316',           // Soglia / tempo
   rinforzo: '#22c55e',
   cyclette: '#06b6d4',
   riposo: '#52525b',
@@ -68,9 +71,12 @@ export const SESSION_COLORS: Record<string, string> = {
 export const SESSION_ICONS: Record<string, string> = {
   corsa_lenta: 'walk',
   lungo: 'trending-up',
+  lungo_spec: 'rocket',
   ripetute: 'flash',
-  ripetute_salita: 'arrow-up-circle',  // For hill repeats
+  ripetute_salita: 'arrow-up-circle',
   progressivo: 'arrow-up',
+  medio: 'speedometer',
+  soglia: 'pulse',
   rinforzo: 'barbell',
   cyclette: 'bicycle',
   riposo: 'bed',
