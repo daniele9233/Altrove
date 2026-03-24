@@ -97,7 +97,17 @@ export default function ObiettivoScreen() {
     try {
       const updated = await api.updateProfile(updates);
       setProfile(updated);
-      Alert.alert('Salvato', 'Obiettivo aggiornato con successo');
+      // Auto-generate plan if race_date is set
+      if (updates.race_date || updated.race_date) {
+        try {
+          await api.generatePlan();
+          Alert.alert('Salvato', 'Obiettivo aggiornato e piano generato con successo');
+        } catch {
+          Alert.alert('Salvato', 'Obiettivo aggiornato. Usa "Rigenera Obiettivo" per generare il piano.');
+        }
+      } else {
+        Alert.alert('Salvato', 'Obiettivo aggiornato con successo');
+      }
     } catch {
       Alert.alert('Errore', 'Impossibile salvare');
     } finally {

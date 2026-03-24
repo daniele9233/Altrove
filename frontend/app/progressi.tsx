@@ -593,25 +593,27 @@ export default function ProgressiScreen() {
   const currentAT = anaerobic_threshold?.current || {};
   const preInjuryAT = anaerobic_threshold?.pre_injury || {};
 
-  // Build pace chart data: pre-injury + history points
-  const pacePoints: { label: string; secs: number; hr: number; color: string }[] = [];
+  // Build pace chart data: pre-injury + last 7 history points (max 8 bars total)
+  const allPacePoints: { label: string; secs: number; hr: number; color: string }[] = [];
   if (preInjuryAT.pace) {
     const parts = preInjuryAT.pace.split(':');
-    pacePoints.push({
+    allPacePoints.push({
       label: 'Pre-inf.',
       secs: parseInt(parts[0]) * 60 + parseInt(parts[1]),
       hr: preInjuryAT.hr || 0,
       color: COLORS.orange,
     });
   }
-  for (const h of history) {
-    pacePoints.push({
+  const recentHistory = history.slice(-7);
+  for (const h of recentHistory) {
+    allPacePoints.push({
       label: h.label,
       secs: h.pace_secs,
       hr: h.avg_hr,
       color: COLORS.blue,
     });
   }
+  const pacePoints = allPacePoints;
 
   const maxSecs = Math.max(...pacePoints.map(p => p.secs), 360);
   const minSecs = Math.min(...pacePoints.map(p => p.secs), 240);
