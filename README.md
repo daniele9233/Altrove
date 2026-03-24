@@ -104,6 +104,8 @@ Altrove/
 │   │   ├── progressi.tsx      # Storico VO2max/soglia/previsioni
 │   │   ├── calcolatore.tsx    # Calcolatore passi e previsioni
 │   │   ├── injury-risk.tsx    # Recovery & Risk (Recovery Score + Injury Risk)
+│   │   ├── obiettivo.tsx       # Impostazione obiettivo gara dedicata + Rigenera Piano
+│   │   ├── metodologia.tsx    # Info protocollo scientifico (Daniels, Pfitzinger, Seiler)
 │   │   ├── badges.tsx         # Badge e Trofei (100+ badge, 8 categorie + Passerotto leggendario)
 │   │   ├── supercompensazione.tsx # Supercompensazione: curva, grafico futuro, maturazione, golden day, ROI
 │   │   ├── heatmap.tsx        # DNA della Corsa (Heatmap Genetico annuale)
@@ -583,8 +585,18 @@ Per ogni distanza (5km, 10km, 15km, 21.1km):
 - **Step 4**: Livello (principiante/intermedio/avanzato) + km/settimana max
 - **Step 5**: Riepilogo + generazione automatica piano
 - Stato persistito con AsyncStorage — mostrato solo al primo lancio
+- **Setup Wizard**: rieseguibile in qualsiasi momento da Profilo → Setup Wizard
+- **"Corri da"**: picker anno dal 2000 al 2026
+- Non cancella dati esistenti se profilo già presente (evita wipe corse Strava)
 
-### 8. Integratori ed Esercizi
+### 8. Obiettivo Gara & Metodologia
+- **Pagina Obiettivo** (`obiettivo.tsx`): impostazione dedicata gara, data, tempo target, livello
+- **Salva Obiettivo**: aggiorna profilo e auto-genera piano se race_date presente
+- **Rigenera Obiettivo**: salva + rigenera piano completo con nuovi parametri
+- **Pagina Metodologia** (`metodologia.tsx`): info scientifiche su VDOT, periodizzazione, zone HR
+- Riferimenti: Daniels (2005), Pfitzinger (2001), Seiler (2010), Banister (1991)
+
+### 9. Integratori ed Esercizi
 - Sezioni configurabili (inizialmente vuote)
 - Gestibili dall'utente per il proprio recupero/performance
 
