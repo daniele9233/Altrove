@@ -51,7 +51,7 @@ export default function OnboardingScreen({ onComplete }: OnboardingProps) {
   const [timeHours, setTimeHours] = useState('1');
   const [timeMinutes, setTimeMinutes] = useState('35');
   const [timeSeconds, setTimeSeconds] = useState('00');
-  const [startYear, setStartYear] = useState('2024');
+  const [startYear, setStartYear] = useState('2020');
   const [startMonth, setStartMonth] = useState('01');
 
   // Step 4: Livello
@@ -85,8 +85,14 @@ export default function OnboardingScreen({ onComplete }: OnboardingProps) {
   const handleFinish = async () => {
     setLoading(true);
     try {
-      // First seed the database (creates empty profile)
-      try { await api.seed(); } catch {}
+      // Check if profile exists, only seed if first time
+      try {
+        await api.getProfile();
+        // Profile exists, just update it (don't wipe data)
+      } catch {
+        // No profile yet, seed to create empty one
+        try { await api.seed(); } catch {}
+      }
 
       // Build profile data
       const finalRaceGoal = raceGoal === 'Altro' ? customRaceGoal : raceGoal;
@@ -107,12 +113,20 @@ export default function OnboardingScreen({ onComplete }: OnboardingProps) {
       // Update profile
       await api.updateProfile(profileData);
 
+      // Sync Strava runs if connected
+      try {
+        await api.syncStrava();
+      } catch (e) {
+        console.log('Strava sync skipped (not connected yet):', e);
+      }
+
       // Generate training plan if we have enough data
       if (finalRaceGoal && raceDate) {
         try {
-          await api.generatePlan();
+          const result = await api.generatePlan();
+          console.log('Plan generated:', result?.weeks, 'weeks');
         } catch (e) {
-          console.log('Plan generation skipped:', e);
+          console.log('Plan generation failed:', e);
         }
       }
 
@@ -499,7 +513,7 @@ export default function OnboardingScreen({ onComplete }: OnboardingProps) {
               <View style={{ flex: 1 }}>
                 <Text style={{ color: COLORS.textMuted, fontSize: FONT_SIZES.xs, marginBottom: 4, textAlign: 'center', fontWeight: '700' }}>ANNO</Text>
                 <ScrollView style={{ maxHeight: 120 }} nestedScrollEnabled showsVerticalScrollIndicator={false}>
-                  {['2015','2016','2017','2018','2019','2020','2021','2022','2023','2024','2025','2026'].map(y => (
+                  {Array.from({length: 27}, (_, i) => String(2000 + i)).map(y => (
                     <TouchableOpacity key={y} onPress={() => setStartYear(y)}
                       style={{ paddingVertical: 8, alignItems: 'center', backgroundColor: startYear === y ? COLORS.lime + '20' : 'transparent', borderRadius: 8 }}>
                       <Text style={{ color: startYear === y ? COLORS.lime : COLORS.text, fontWeight: startYear === y ? '700' : '400', fontSize: FONT_SIZES.body }}>{y}</Text>

@@ -806,7 +806,7 @@ export default function ProgressiScreen() {
           </View>
 
           {/* Pace Chart */}
-          {pacePoints.length > 1 && (
+          {pacePoints.length >= 1 ? (
             <View style={styles.chartArea}>
               <Text style={styles.chartLabel}>ANDAMENTO PASSO SOGLIA</Text>
               <View style={styles.chart}>
@@ -828,13 +828,19 @@ export default function ProgressiScreen() {
                           <View style={[styles.paceBar, { height: barH, backgroundColor: p.color }]} />
                         </View>
                         <Text style={styles.paceBarLabel}>{p.label}</Text>
-                        <Text style={styles.paceBarHr}>{p.hr} bpm</Text>
+                        <Text style={styles.paceBarHr}>{p.hr > 0 ? `${p.hr} bpm` : ''}</Text>
                       </View>
                     );
                   })}
                 </View>
               </View>
               <Text style={styles.chartNote}>↑ Barre più alte = passo più veloce (meglio)</Text>
+            </View>
+          ) : (
+            <View style={{ padding: SPACING.md, alignItems: 'center' }}>
+              <Text style={{ color: COLORS.textMuted, fontSize: 12, textAlign: 'center' }}>
+                La soglia anaerobica verrà tracciata con le prossime corse sincronizzate da Strava.
+              </Text>
             </View>
           )}
         </View>

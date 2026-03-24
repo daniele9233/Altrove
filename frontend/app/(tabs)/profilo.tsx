@@ -3,6 +3,8 @@ import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
   ActivityIndicator, TextInput, Modal, Alert, Image, Linking,
 } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as Updates from 'expo-updates';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect, useRouter } from 'expo-router';
@@ -341,6 +343,48 @@ export default function ProfiloScreen() {
                 </View>
               </View>
               <Ionicons name="chevron-forward" size={20} color="#3b82f6" />
+            </TouchableOpacity>
+
+            {/* Setup Wizard — Riapri onboarding */}
+            <TouchableOpacity
+              onPress={() => {
+                Alert.alert(
+                  'Reimpostazione',
+                  'Vuoi rieseguire la configurazione iniziale? Potrai reimpostare tutti i valori del profilo.',
+                  [
+                    { text: 'Annulla', style: 'cancel' },
+                    {
+                      text: 'Conferma',
+                      onPress: async () => {
+                        await AsyncStorage.setItem('onboarding_completed', 'false');
+                        try {
+                          await Updates.reloadAsync();
+                        } catch {
+                          Alert.alert('Riavvia', 'Chiudi e riapri l\'app per avviare la configurazione.');
+                        }
+                      },
+                    },
+                  ]
+                );
+              }}
+              style={{
+                flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+                backgroundColor: '#f9731610', borderRadius: BORDER_RADIUS.lg,
+                padding: SPACING.lg, marginHorizontal: SPACING.xl, marginTop: SPACING.md,
+                borderWidth: 1, borderColor: '#f9731630',
+              }}
+              activeOpacity={0.7}
+            >
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: SPACING.md, flex: 1 }}>
+                <View style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: '#f9731620', alignItems: 'center', justifyContent: 'center' }}>
+                  <Ionicons name="settings" size={20} color="#f97316" />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ fontSize: FONT_SIZES.body, fontWeight: '900', color: COLORS.text }}>SETUP WIZARD</Text>
+                  <Text style={{ fontSize: FONT_SIZES.sm, color: COLORS.textMuted, marginTop: 2 }}>Riesegui la configurazione iniziale</Text>
+                </View>
+              </View>
+              <Ionicons name="chevron-forward" size={20} color="#f97316" />
             </TouchableOpacity>
 
             {/* PBs */}
