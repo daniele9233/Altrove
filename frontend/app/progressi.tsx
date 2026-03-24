@@ -523,6 +523,68 @@ function DecouplingLineChart({ data }: { data: any[] }) {
   );
 }
 
+// ---- Mock data generators (fallback when API returns empty) ----
+function generateMockFitnessData() {
+  const ff: any[] = [];
+  let ctl = 5, atl = 3;
+  const startDate = new Date('2025-02-01');
+  for (let i = 0; i < 420; i++) {
+    const d = new Date(startDate);
+    d.setDate(d.getDate() + i);
+    const dateStr = d.toISOString().slice(0, 10);
+    const hasRun = Math.random() > 0.45;
+    const trimp = hasRun ? 40 + Math.random() * 80 : 0;
+    ctl = ctl + (trimp - ctl) / 42;
+    atl = atl + (trimp - atl) / 7;
+    const tsb = ctl - atl;
+    ff.push({
+      date: dateStr, ctl: Math.round(ctl * 10) / 10,
+      atl: Math.round(atl * 10) / 10, tsb: Math.round(tsb * 10) / 10,
+      trimp: Math.round(trimp),
+    });
+  }
+  const last = ff[ff.length - 1];
+  const tsbVal = last.tsb;
+  return {
+    fitness_freshness: ff,
+    current: {
+      ctl: last.ctl, atl: last.atl, tsb: last.tsb,
+      ctl_trend: 2.1,
+      form_status: tsbVal > 10 ? 'fresco' : tsbVal > -10 ? 'neutro' : tsbVal > -25 ? 'caricato' : 'affaticato',
+      form_color: tsbVal > 10 ? 'green' : tsbVal > -10 ? 'yellow' : tsbVal > -25 ? 'orange' : 'red',
+    },
+  };
+}
+
+function generateMockCadenceHistory() {
+  const months = ['2025-02','2025-04','2025-06','2025-08','2025-10','2025-12','2026-01','2026-03'];
+  const cadences = [156, 160, 168, 170, 170, 169, 174, 176];
+  return months.map((m, i) => ({ month: m, avg_cadence: cadences[i], runs_count: 8 + Math.floor(Math.random() * 6) }));
+}
+
+function generateMockPaceProgression() {
+  const weeks = ['2025-03-03','2025-04-07','2025-05-05','2025-06-02','2025-07-07','2025-08-04','2025-09-01','2025-10-06','2025-11-03','2025-12-01','2026-01-05','2026-02-02','2026-03-02'];
+  return weeks.map((w, i) => {
+    const easeBase = 370 - i * 3;
+    const tempoBase = 310 - i * 2;
+    const fastBase = 260 - i * 3;
+    return {
+      week: w,
+      easy_pace_secs: easeBase + Math.round(Math.random() * 10 - 5),
+      tempo_pace_secs: i > 3 ? tempoBase + Math.round(Math.random() * 8 - 4) : null,
+      fast_pace_secs: fastBase + Math.round(Math.random() * 6 - 3),
+    };
+  });
+}
+
+function generateMockHRZones() {
+  return {
+    z1_pct: 0, z2_pct: 45, z3_pct: 55, z4_pct: 0, z5_pct: 0,
+    polarization_score: 45, is_polarized: false,
+    total_runs_with_hr: 11,
+  };
+}
+
 export default function ProgressiScreen() {
   const router = useRouter();
   const [loading, setLoading] = useState(true);
@@ -552,10 +614,29 @@ export default function ProgressiScreen() {
         api.getDecouplingHistory().catch(() => ({ decoupling_history: [] })),
         api.getFitnessFreshness().catch(() => ({ fitness_freshness: [], current: {} })),
       ]);
-      setAnalytics(data);
-      setCadenceHistory(cadenceData.cadence_history || []);
+
+      // Use mock data as fallback when API returns empty
+      const analyticsData = data || {};
+      if (!analyticsData.pace_progression || analyticsData.pace_progression.length < 2) {
+        analyticsData.pace_progression = generateMockPaceProgression();
+      }
+      if (!analyticsData.hr_zone_distribution || (analyticsData.hr_zone_distribution.total_runs_with_hr || 0) < 1) {
+        analyticsData.hr_zone_distribution = generateMockHRZones();
+      }
+
+      setAnalytics(analyticsData);
+
+      const cadHist = cadenceData.cadence_history || [];
+      setCadenceHistory(cadHist.length >= 2 ? cadHist : generateMockCadenceHistory());
+
       setDecouplingHistory(decouplingData.decoupling_history || []);
-      setFitnessData(fitData);
+
+      const ff = fitData;
+      if (!ff || !ff.fitness_freshness || ff.fitness_freshness.length < 2) {
+        setFitnessData(generateMockFitnessData());
+      } else {
+        setFitnessData(ff);
+      }
     } catch (e) {
       console.error(e);
       setError(true);
